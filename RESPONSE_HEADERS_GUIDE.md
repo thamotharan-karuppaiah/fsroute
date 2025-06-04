@@ -1,4 +1,4 @@
-# FreshRoute Response Headers Guide
+# Response Headers in Chrome Extensions (Manifest V3)
 
 ## 🚨 **Important: Response Header Limitations**
 
@@ -159,7 +159,7 @@ The extension now includes validation that tells you exactly which headers are a
 2. **Rules Active?** - Use debug tool to check current rules
 3. **URL Pattern Match?** - Verify your URL patterns match target domains
 4. **Header Restrictions?** - Check console for blocked header warnings
-5. **Content Script Loaded?** - Look for "🚀 FreshRoute Content Script loaded" in console
+5. **Content Script Loaded?** - Look for "🚀 URL Rewriter Content Script loaded" in console
 6. **Network Requests?** - Check DevTools Network tab for actual headers
 
 ## 📊 **What Works vs What Doesn't**

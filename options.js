@@ -1,8 +1,4 @@
-// Options page script for FreshRoute - URL Rewriter & Header Modifier
-
-// Global variables
-let allRules = [];
-let allGroups = [];
+// Options page script for FreshRoute
 
 let groups = [];
 let editingGroupIndex = null;

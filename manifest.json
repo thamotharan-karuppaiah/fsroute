@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "FreshRoute - URL Rewriter & Header Modifier",
+  "name": "FreshRoute",
   "version": "1.0.0",
   "description": "Chrome extension to rewrite URLs and modify headers with regex support",
   "permissions": [
@@ -27,7 +27,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "FreshRoute - URL Rewriter & Header Modifier"
+    "default_title": "FreshRoute"
   },
   "options_page": "options.html",
   "declarative_net_request": {

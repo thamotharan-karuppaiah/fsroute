@@ -1,8 +1,4 @@
-# FreshRoute CSP (Content Security Policy) Fix Guide
-
-## Understanding CSP Issues
-
-When using FreshRoute, you might encounter Content Security Policy (CSP) errors. This guide explains what CSP is, why it causes issues, and how to work around these limitations.
+# CSP Fix Guide - Response Headers
 
 ## 🚨 **Issue Fixed: Content Security Policy Violation**
 
@@ -55,7 +51,7 @@ When the extension is working correctly, you should see:
 
 ### In Console:
 ```
-🚀 FreshRoute Content Script loaded
+🚀 URL Rewriter Content Script loaded
 🔍 Debug functions available:
   - debugExtensionHeaders() - Detailed header analysis
   - testExtensionHeaders(url) - Test specific URL headers

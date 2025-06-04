@@ -1,4 +1,4 @@
-// Background script for FreshRoute - URL Rewriter & Header Modifier
+// Background script for FreshRoute
 let isExtensionEnabled = true;
 let appliedRules = new Set(); // Track applied rules to prevent duplicate notifications
 let isUpdatingRules = false; // Prevent concurrent rule updates
@@ -20,7 +20,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     });
   }
   
-  console.log('FreshRoute - URL Rewriter & Header Modifier installed');
+  console.log('FreshRoute installed');
 });
 
 // Listen for storage changes to update rules

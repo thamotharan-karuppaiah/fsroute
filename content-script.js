@@ -1,11 +1,8 @@
-// Content script for FreshRoute - URL Rewriter & Header Modifier
-// Handles notifications and UI interactions for rule application
+// Content script for FreshRoute
+// This handles CORS and other limitations of declarativeNetRequest
 
-// Check if we're in the top frame (not an iframe)
-if (window === window.top) {
-  let notificationSettings = {
-    enabled: true
-  };
+(function() {
+  'use strict';
   
   let notificationsEnabled = true;
   let extensionEnabled = true;
@@ -39,14 +36,29 @@ if (window === window.top) {
     const notification = document.createElement('div');
     notification.id = 'url-rewriter-notification';
     notification.innerHTML = `
-      <div class="notification-header">
-        <span class="notification-icon">🔗</span>
-        <span class="notification-title">FreshRoute Active</span>
-        <button class="notification-close">&times;</button>
-      </div>
-      <div class="notification-body">
-        <strong>${data.ruleName}</strong><br>
-        <span class="notification-url">${data.url}</span>
+      <div style="
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #4CAF50;
+        color: white;
+        padding: 12px 20px;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 10000;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        max-width: 350px;
+        word-wrap: break-word;
+        animation: slideIn 0.3s ease;
+      ">
+        <div style="font-weight: 600; margin-bottom: 4px;">
+          🔗 URL Rewriter Active
+        </div>
+        <div style="font-size: 12px; opacity: 0.9;">
+          Rule: ${data.ruleName}
+        </div>
+        ${data.redirectUrl ? `<div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">→ ${data.redirectUrl}</div>` : ''}
       </div>
     `;
     
@@ -284,5 +296,5 @@ if (window === window.top) {
     injectResponseHeaderDebugger();
   }
   
-  console.log('🚀 FreshRoute Content Script loaded');
-} 
+  console.log('🚀 URL Rewriter Content Script loaded');
+})(); 
