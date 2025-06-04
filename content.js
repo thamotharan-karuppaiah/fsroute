@@ -1,5 +1,8 @@
-// Content script for URL Rewriter & Header Modifier
-// Shows toast notifications when rules are applied
+// Content script for FreshRoute - URL Rewriter & Header Modifier
+// This handles CORS and other limitations of declarativeNetRequest
+
+(function() {
+  'use strict';
 
 let activeToasts = new Set();
 let notificationsEnabled = true;
@@ -211,4 +214,5 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
-} 
+}
+})(); 

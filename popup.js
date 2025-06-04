@@ -1,4 +1,4 @@
-// Popup script for URL Rewriter & Header Modifier
+// Popup script for FreshRoute - URL Rewriter & Header Modifier
 
 document.addEventListener('DOMContentLoaded', async () => {
   const extensionToggle = document.getElementById('extensionToggle');

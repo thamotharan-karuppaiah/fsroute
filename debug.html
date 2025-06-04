@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Header Debug Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .debug-section {
+            background: #f5f5f5;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        .result {
+            background: #e8f5e8;
+            border: 1px solid #4caf50;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+        }
+        .error {
+            background: #ffeaea;
+            border: 1px solid #f44336;
+        }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+        pre {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛠️ Header Modification Debug Tool</h1>
+    
+    <div class="debug-section">
+        <h3>Extension Debug</h3>
+        <button onclick="debugHeaderRules()">Debug Header Rules</button>
+        <button onclick="getCurrentRules()">Get Current Rules</button>
+        <button onclick="testRequest()">Test Request</button>
+        <div id="debugResult"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h3>Test Request</h3>
+        <input type="url" id="testUrl" placeholder="Enter URL to test" value="https://infinity-share.freshinfinitysquad.com/api/test" style="width: 400px; padding: 8px;">
+        <button onclick="makeTestRequest()">Make Request</button>
+        <button onclick="testResponseHeaders()">Test Response Headers</button>
+        <div id="requestResult"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h3>Response Header Test</h3>
+        <p>Test if response headers are being modified by the extension:</p>
+        <button onclick="testSpecificHeaders()">Test Custom Headers</button>
+        <button onclick="testCacheControl()">Test Cache-Control</button>
+        <button onclick="checkExtensionHeaders()">Check Extension Headers</button>
+        <button onclick="showConsoleInstructions()">Show Console Instructions</button>
+        <div id="responseHeaderResult"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h3>Network Monitor</h3>
+        <button onclick="startNetworkMonitor()">Start Monitor</button>
+        <button onclick="stopNetworkMonitor()">Stop Monitor</button>
+        <div id="networkLog"></div>
+    </div>
+
+    <script>
+        let networkMonitor = null;
+
+        async function debugHeaderRules() {
+            try {
+                const response = await chrome.runtime.sendMessage({ action: 'debugHeaders' });
+                displayResult('debugResult', response);
+            } catch (error) {
+                displayError('debugResult', 'Error debugging headers: ' + error.message);
+            }
+        }
+
+        async function getCurrentRules() {
+            try {
+                const response = await chrome.runtime.sendMessage({ action: 'getCurrentRules' });
+                displayResult('debugResult', response);
+            } catch (error) {
+                displayError('debugResult', 'Error getting rules: ' + error.message);
+            }
+        }
+
+        async function makeTestRequest() {
+            const url = document.getElementById('testUrl').value;
+            if (!url) {
+                displayError('requestResult', 'Please enter a URL');
+                return;
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    mode: 'cors',
+                    credentials: 'include'
+                });
+                
+                const result = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: {},
+                    url: response.url
+                };
+                
+                // Get response headers
+                for (const [key, value] of response.headers.entries()) {
+                    result.headers[key] = value;
+                }
+                
+                displayResult('requestResult', result);
+            } catch (error) {
+                displayError('requestResult', 'Request failed: ' + error.message);
+            }
+        }
+
+        async function testResponseHeaders() {
+            const url = document.getElementById('testUrl').value || 'https://infinity-share.freshinfinitysquad.com/api/test';
+            
+            try {
+                console.log('🧪 Testing response headers for:', url);
+                const response = await fetch(url, { 
+                    method: 'HEAD',
+                    mode: 'cors',
+                    credentials: 'include'
+                });
+                
+                const headers = {};
+                const extensionHeaders = {};
+                
+                for (const [key, value] of response.headers.entries()) {
+                    headers[key] = value;
+                    if (key.toLowerCase().startsWith('x-extension') || 
+                        key.toLowerCase().startsWith('x-debug') ||
+                        key.toLowerCase() === 'cache-control') {
+                        extensionHeaders[key] = value;
+                    }
+                }
+                
+                const result = {
+                    url: response.url,
+                    status: response.status,
+                    allHeaders: headers,
+                    extensionModifiedHeaders: extensionHeaders,
+                    headerCount: Object.keys(headers).length,
+                    extensionHeaderCount: Object.keys(extensionHeaders).length
+                };
+                
+                displayResult('responseHeaderResult', result);
+            } catch (error) {
+                displayError('responseHeaderResult', 'Response header test failed: ' + error.message);
+            }
+        }
+
+        async function testSpecificHeaders() {
+            const testUrls = [
+                'https://infinity-share.freshinfinitysquad.com/api/test',
+                'https://infinity-share.freshinfinitysquad.com/support/v1/test',
+                window.location.href // Current page
+            ];
+            
+            const results = [];
+            
+            for (const url of testUrls) {
+                try {
+                    const response = await fetch(url, { method: 'HEAD', mode: 'cors' });
+                    const extensionHeaders = {};
+                    
+                    for (const [key, value] of response.headers.entries()) {
+                        if (key.toLowerCase().includes('extension') || 
+                            key.toLowerCase().includes('debug') ||
+                            key.toLowerCase() === 'cache-control') {
+                            extensionHeaders[key] = value;
+                        }
+                    }
+                    
+                    results.push({
+                        url: url,
+                        status: response.status,
+                        extensionHeaders: extensionHeaders,
+                        hasExtensionHeaders: Object.keys(extensionHeaders).length > 0
+                    });
+                } catch (error) {
+                    results.push({
+                        url: url,
+                        error: error.message,
+                        hasExtensionHeaders: false
+                    });
+                }
+            }
+            
+            displayResult('responseHeaderResult', { testResults: results });
+        }
+
+        async function testCacheControl() {
+            const url = document.getElementById('testUrl').value || window.location.href;
+            
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                const cacheControl = response.headers.get('Cache-Control');
+                
+                const result = {
+                    url: response.url,
+                    cacheControl: cacheControl,
+                    isModified: cacheControl === 'no-cache, no-store, must-revalidate',
+                    allCacheHeaders: {}
+                };
+                
+                // Get all cache-related headers
+                for (const [key, value] of response.headers.entries()) {
+                    if (key.toLowerCase().includes('cache') || 
+                        key.toLowerCase().includes('etag') ||
+                        key.toLowerCase().includes('expires')) {
+                        result.allCacheHeaders[key] = value;
+                    }
+                }
+                
+                displayResult('responseHeaderResult', result);
+            } catch (error) {
+                displayError('responseHeaderResult', 'Cache-Control test failed: ' + error.message);
+            }
+        }
+
+        async function checkExtensionHeaders() {
+            // Check if content script debugging function is available
+            if (typeof window.debugExtensionHeaders === 'function') {
+                console.log('🔍 Running extension header debug...');
+                const result = await window.debugExtensionHeaders();
+                displayResult('responseHeaderResult', { 
+                    message: 'Extension debug function executed - check console for detailed output',
+                    contentScriptActive: true,
+                    debugResult: result
+                });
+            } else if (typeof window.testExtensionHeaders === 'function') {
+                console.log('🔍 Running extension header test...');
+                const result = await window.testExtensionHeaders();
+                displayResult('responseHeaderResult', { 
+                    message: 'Extension test function executed',
+                    contentScriptActive: true,
+                    testResult: result
+                });
+            } else {
+                // Fallback: try to detect content script in other ways
+                const contentScriptActive = document.querySelector('style[id="url-rewriter-styles"]') !== null;
+                
+                displayResult('responseHeaderResult', { 
+                    message: 'Content script debug functions not found',
+                    contentScriptActive: contentScriptActive,
+                    suggestion: 'Content script may not be loaded yet. Try reloading the page.',
+                    troubleshooting: [
+                        'Check if extension is enabled',
+                        'Verify content script is loaded (look for console message)',
+                        'Check if CSP is blocking script injection',
+                        'Try manual testing in console: debugExtensionHeaders()'
+                    ]
+                });
+            }
+        }
+
+        // Add manual console testing instructions
+        function showConsoleInstructions() {
+            console.log('🛠️ Manual Header Testing Instructions:');
+            console.log('');
+            console.log('1. Run these commands in the console:');
+            console.log('   debugExtensionHeaders()     // Detailed analysis');
+            console.log('   testExtensionHeaders()      // Quick test');
+            console.log('   testExtensionHeaders("https://your-domain.com/api/test")  // Test specific URL');
+            console.log('');
+            console.log('2. Check Network tab in DevTools for:');
+            console.log('   - X-Extension-Modified header');
+            console.log('   - X-Debug-Info header');
+            console.log('   - Modified Cache-Control header');
+            console.log('');
+            console.log('3. If functions are not available:');
+            console.log('   - Reload the page');
+            console.log('   - Check if extension is enabled');
+            console.log('   - Look for "🚀 FreshRoute Content Script loaded" in console');
+            
+            displayResult('responseHeaderResult', {
+                message: 'Console testing instructions logged - check console',
+                instructions: 'Manual testing commands available in console'
+            });
+        }
+
+        function testRequest() {
+            // Simulate a test request that should trigger header modification
+            const testUrls = [
+                'https://infinity-share.freshinfinitysquad.com/api/test',
+                'https://infinity-share.freshinfinitysquad.com/support/v1/test',
+                'http://localhost.freshservice-dev.com:3000/api/test'
+            ];
+            
+            console.log('🧪 Testing URLs that should trigger header modification:');
+            testUrls.forEach(url => {
+                console.log(`Testing: ${url}`);
+                fetch(url, { mode: 'no-cors' }).catch(e => {
+                    console.log(`Expected CORS error for ${url}:`, e.message);
+                });
+            });
+            
+            displayResult('debugResult', { 
+                message: 'Test requests sent (check console and network tab)',
+                testedUrls: testUrls
+            });
+        }
+
+        function startNetworkMonitor() {
+            console.log('🔍 Network monitoring started - check DevTools Network tab');
+            displayResult('networkLog', { message: 'Network monitoring started - check DevTools Network tab' });
+        }
+
+        function stopNetworkMonitor() {
+            console.log('🛑 Network monitoring stopped');
+            displayResult('networkLog', { message: 'Network monitoring stopped' });
+        }
+
+        function displayResult(elementId, result) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = '<div class="result"><pre>' + JSON.stringify(result, null, 2) + '</pre></div>';
+        }
+
+        function displayError(elementId, message) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = '<div class="result error">' + message + '</div>';
+        }
+
+        // Auto-run debug on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(debugHeaderRules, 1000);
+        });
+    </script>
+</body>
+</html> 

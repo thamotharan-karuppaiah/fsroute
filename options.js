@@ -1,4 +1,8 @@
-// Options page script for URL Rewriter & Header Modifier
+// Options page script for FreshRoute - URL Rewriter & Header Modifier
+
+// Global variables
+let allRules = [];
+let allGroups = [];
 
 let groups = [];
 let editingGroupIndex = null;
@@ -83,6 +87,7 @@ const PRESET_TEMPLATES = {
       if (variables.targetDomain && (variables.cookieValue || variables.csrfToken)) {
         const headers = [];
         
+        // Request headers (these work reliably)
         if (variables.cookieValue) {
           headers.push({
             name: 'Cookie',
@@ -100,6 +105,28 @@ const PRESET_TEMPLATES = {
             target: 'request'
           });
         }
+        
+        // Response headers (limited set that CAN be modified)
+        headers.push(
+          {
+            name: 'X-Extension-Modified',
+            value: 'true',
+            operation: 'set',
+            target: 'response'
+          },
+          {
+            name: 'X-Debug-Info',
+            value: 'Freshservice-Extension-Active',
+            operation: 'set',
+            target: 'response'
+          },
+          {
+            name: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+            operation: 'set',
+            target: 'response'
+          }
+        );
         
         if (headers.length > 0) {
           rules.push({

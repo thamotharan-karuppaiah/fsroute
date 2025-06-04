@@ -1,4 +1,4 @@
-// Background script for URL Rewriter & Header Modifier
+// Background script for FreshRoute - URL Rewriter & Header Modifier
 let isExtensionEnabled = true;
 let appliedRules = new Set(); // Track applied rules to prevent duplicate notifications
 let isUpdatingRules = false; // Prevent concurrent rule updates
@@ -20,7 +20,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     });
   }
   
-  console.log('URL Rewriter & Header Modifier installed');
+  console.log('FreshRoute - URL Rewriter & Header Modifier installed');
 });
 
 // Listen for storage changes to update rules
@@ -297,7 +297,7 @@ async function updateDeclarativeRules() {
       }
     }
 
-    // Process header modification rules (unchanged)
+    // Process header modification rules with improved validation
     if (headerRules.length > 0) {
       for (let i = 0; i < headerRules.length; i++) {
         const rule = headerRules[i];
@@ -306,6 +306,13 @@ async function updateDeclarativeRules() {
         const responseHeaders = [];
 
         rule.headers.forEach(header => {
+          // Validate and filter headers
+          const headerValidation = validateHeaderForDeclarativeNetRequest(header);
+          if (!headerValidation.allowed) {
+            console.warn(`⚠️ Header "${header.name}" cannot be modified via declarativeNetRequest: ${headerValidation.reason}`);
+            return; // Skip this header
+          }
+
           const headerAction = {
             header: header.name,
             operation: header.operation, // 'set', 'append', 'remove'
@@ -327,20 +334,29 @@ async function updateDeclarativeRules() {
           const uniqueId = ruleId++;
           usedIds.add(uniqueId);
           
-          const requestRule = {
-            id: uniqueId,
-            priority: 100, // Lower priority than URL rewrites
-            action: {
-              type: 'modifyHeaders',
-              requestHeaders: requestHeaders
-            },
-            condition: {
-              regexFilter: rule.urlPattern,
-              resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'other']
-            }
-          };
-          
-          declarativeRules.push(requestRule);
+          try {
+            // Validate URL pattern for declarativeNetRequest
+            const normalizedUrlPattern = normalizeRegexPattern(rule.urlPattern);
+            new RegExp(normalizedUrlPattern); // Test regex validity
+            
+            const requestRule = {
+              id: uniqueId,
+              priority: 100, // Lower priority than URL rewrites
+              action: {
+                type: 'modifyHeaders',
+                requestHeaders: requestHeaders
+              },
+              condition: {
+                regexFilter: normalizedUrlPattern,
+                resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'other']
+              }
+            };
+            
+            declarativeRules.push(requestRule);
+            console.log(`✅ Added request header rule "${rule.name}" with ${requestHeaders.length} headers`);
+          } catch (e) {
+            console.error(`❌ Invalid URL pattern for header rule "${rule.name}": ${rule.urlPattern}`, e);
+          }
         }
 
         if (responseHeaders.length > 0) {
@@ -351,20 +367,34 @@ async function updateDeclarativeRules() {
           const uniqueId = ruleId++;
           usedIds.add(uniqueId);
           
-          const responseRule = {
-            id: uniqueId,
-            priority: 100, // Lower priority than URL rewrites
-            action: {
-              type: 'modifyHeaders',
-              responseHeaders: responseHeaders
-            },
-            condition: {
-              regexFilter: rule.urlPattern,
-              resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'other']
-            }
-          };
-          
-          declarativeRules.push(responseRule);
+          try {
+            // Validate URL pattern for declarativeNetRequest
+            const normalizedUrlPattern = normalizeRegexPattern(rule.urlPattern);
+            new RegExp(normalizedUrlPattern); // Test regex validity
+            
+            const responseRule = {
+              id: uniqueId,
+              priority: 100, // Lower priority than URL rewrites
+              action: {
+                type: 'modifyHeaders',
+                responseHeaders: responseHeaders
+              },
+              condition: {
+                regexFilter: normalizedUrlPattern,
+                resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'other']
+              }
+            };
+            
+            declarativeRules.push(responseRule);
+            console.log(`✅ Added response header rule "${rule.name}" with ${responseHeaders.length} headers`);
+          } catch (e) {
+            console.error(`❌ Invalid URL pattern for header rule "${rule.name}": ${rule.urlPattern}`, e);
+          }
+        }
+
+        // If no headers were valid, log a warning
+        if (requestHeaders.length === 0 && responseHeaders.length === 0) {
+          console.warn(`⚠️ No valid headers found for rule "${rule.name}" - all headers may be restricted`);
         }
       }
     }
@@ -406,6 +436,106 @@ async function updateDeclarativeRules() {
   }
 }
 
+// Validate if a header can be modified via declarativeNetRequest
+function validateHeaderForDeclarativeNetRequest(header) {
+  const headerName = header.name.toLowerCase();
+  
+  // Headers that cannot be modified for security reasons (both request and response)
+  const universallyRestrictedHeaders = [
+    // Browser-controlled headers
+    'host',
+    'connection',
+    'upgrade',
+    'expect',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'te',
+    'trailer',
+    'transfer-encoding'
+  ];
+  
+  if (universallyRestrictedHeaders.includes(headerName)) {
+    return {
+      allowed: false,
+      reason: `Header "${header.name}" is browser-controlled and cannot be modified`
+    };
+  }
+  
+  // Request headers have fewer restrictions
+  if (header.target === 'request') {
+    return { allowed: true };
+  }
+  
+  // Response headers have more restrictions
+  if (header.target === 'response') {
+    // CORS headers cannot be modified (security restriction)
+    const corsHeaders = [
+      'access-control-allow-origin',
+      'access-control-allow-methods', 
+      'access-control-allow-headers',
+      'access-control-allow-credentials',
+      'access-control-expose-headers',
+      'access-control-max-age'
+    ];
+    
+    if (corsHeaders.includes(headerName)) {
+      return {
+        allowed: false,
+        reason: `CORS header "${header.name}" cannot be modified via extensions for security reasons. Must be set server-side.`
+      };
+    }
+    
+    // Security headers that cannot be modified
+    const securityHeaders = [
+      'content-security-policy',
+      'x-frame-options',
+      'strict-transport-security',
+      'upgrade-insecure-requests',
+      'set-cookie',
+      'set-cookie2'
+    ];
+    
+    if (securityHeaders.includes(headerName)) {
+      return {
+        allowed: false,
+        reason: `Security header "${header.name}" cannot be modified via declarativeNetRequest`
+      };
+    }
+    
+    // These response headers CAN be modified
+    const allowedResponseHeaders = [
+      'cache-control',
+      'content-type',
+      'content-disposition',
+      'content-encoding',
+      'expires',
+      'last-modified',
+      'etag',
+      'vary',
+      'server',
+      'x-powered-by',
+      'x-custom-header',
+      'x-api-version',
+      'x-rate-limit',
+      'x-debug-info'
+    ];
+    
+    // Allow custom headers (x-* headers) and explicitly allowed headers
+    if (headerName.startsWith('x-') || allowedResponseHeaders.includes(headerName)) {
+      return { allowed: true };
+    }
+    
+    // Warn about potentially restricted response header
+    console.warn(`⚠️ Response header "${header.name}" may not be modifiable. Only custom (x-*) and specific headers are typically allowed.`);
+    return { 
+      allowed: true, // Try anyway, but warn
+      warning: `Header "${header.name}" may not work - response headers are heavily restricted`
+    };
+  }
+  
+  return { allowed: true };
+}
+
 // Notify all tabs about settings changes
 async function notifyAllTabs(action, data) {
   try {
@@ -437,8 +567,99 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ rules });
     });
     return true;
+  } else if (request.action === 'debugHeaders') {
+    // Debug header rules
+    debugHeaderRules().then(result => {
+      sendResponse(result);
+    }).catch(error => {
+      sendResponse({ success: false, error: error.message });
+    });
+    return true;
   }
 });
+
+// Debug function to check header rules
+async function debugHeaderRules() {
+  try {
+    const [syncData, localData] = await Promise.all([
+      chrome.storage.sync.get(['extensionEnabled']),
+      chrome.storage.local.get(['rules', 'groups'])
+    ]);
+    
+    const { extensionEnabled } = syncData;
+    const { rules, groups } = localData;
+    
+    const result = {
+      extensionEnabled,
+      totalGroups: groups ? groups.length : 0,
+      totalRules: 0,
+      headerRules: [],
+      currentDynamicRules: []
+    };
+    
+    // Analyze current rules
+    let allRules = [];
+    if (groups && groups.length > 0) {
+      groups.forEach((group, groupIndex) => {
+        if (group.enabled !== false) {
+          if (group.rules) {
+            group.rules.forEach((rule, ruleIndex) => {
+              if (rule.enabled) {
+                allRules.push({...rule, _groupIndex: groupIndex, _ruleIndex: ruleIndex});
+              }
+            });
+          }
+        }
+      });
+    } else if (rules && rules.length > 0) {
+      allRules = rules.filter(rule => rule.enabled);
+    }
+    
+    result.totalRules = allRules.length;
+    
+    // Get header rules specifically
+    const headerRules = allRules.filter(rule => rule.type === 'modify_headers');
+    result.headerRules = headerRules.map(rule => {
+      const validHeaders = [];
+      const invalidHeaders = [];
+      
+      rule.headers.forEach(header => {
+        const validation = validateHeaderForDeclarativeNetRequest(header);
+        if (validation.allowed) {
+          validHeaders.push(header);
+        } else {
+          invalidHeaders.push({ header, reason: validation.reason });
+        }
+      });
+      
+      return {
+        name: rule.name,
+        urlPattern: rule.urlPattern,
+        totalHeaders: rule.headers.length,
+        validHeaders: validHeaders.length,
+        invalidHeaders: invalidHeaders.length,
+        invalidHeaderDetails: invalidHeaders,
+        enabled: rule.enabled
+      };
+    });
+    
+    // Get current dynamic rules
+    const dynamicRules = await chrome.declarativeNetRequest.getDynamicRules();
+    result.currentDynamicRules = dynamicRules.map(rule => ({
+      id: rule.id,
+      priority: rule.priority,
+      action: rule.action,
+      condition: rule.condition
+    }));
+    
+    console.log('🔍 Header Rules Debug Info:', result);
+    return { success: true, data: result };
+    
+  } catch (error) {
+    console.error('❌ Error debugging header rules:', error);
+    return { success: false, error: error.message };
+  }
+}
 
 // Helper function to calculate rule specificity (higher = more specific)
 function calculateRuleSpecificity(sourcePattern) {
