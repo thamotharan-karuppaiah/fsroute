@@ -50,18 +50,18 @@ const PRESET_TEMPLATES = {
       if (variables.sourceDomain && variables.targetDomain) {
         rules.push({
           id: 'freshservice-api-redirect',
-          name: 'Freshservice API Redirect',
+          name: 'Freshservice Main API Redirect',
           type: 'url_rewrite',
-          sourceUrl: `^http://${escapeRegex(variables.sourceDomain)}:3000/api(.*)`,
-          targetUrl: `https://${variables.targetDomain}/api/$1`,
+          sourceUrl: `^http://${escapeRegex(variables.sourceDomain)}:3000/(api|support/v1|support/v2|support/employee_offboarding|lookup_choices)(.*)`,
+          targetUrl: `https://${variables.targetDomain}/$1$2`,
           preserveOriginalHost: true,
           enabled: true
         });
         
         // Main page redirect for both ports
         rules.push({
-          id: 'freshservice-main-redirect', 
-          name: 'Freshservice Main Page Redirect',
+          id: 'freshservice-microservices-redirect', 
+          name: 'Freshservice Microservices Redirect',
           type: 'url_rewrite',
           sourceUrl: `^http://${escapeRegex(variables.sourceDomain)}:(8080|4000)/(.*)$`,
           targetUrl: `https://${variables.targetDomain}/$2`,
@@ -70,8 +70,8 @@ const PRESET_TEMPLATES = {
         
         // Additional rule for port 4000 to 8080 general redirect
         rules.push({
-          id: 'freshservice-main-redirect', 
-          name: 'Freshservice Main Page Redirect',
+          id: 'freshservice-microservices-redirect-extendd', 
+          name: 'Freshservice Microservices Redirect (Extend)',
           type: 'url_rewrite',
           sourceUrl: `^http://${escapeRegex(variables.targetDomain)}:(8080|4000)/(.*)$`,
           targetUrl: `https://${variables.targetDomain}/$2`,
