@@ -54,7 +54,6 @@ const PRESET_TEMPLATES = {
           type: 'url_rewrite',
           sourceUrl: `^http://${escapeRegex(variables.sourceDomain)}:3000/(api|support/v1|support/v2|support/employee_offboarding|lookup_choices)(.*)`,
           targetUrl: `https://${variables.targetDomain}/$1$2`,
-          preserveOriginalHost: true,
           enabled: true
         });
         
