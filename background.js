@@ -2,6 +2,7 @@
 let isExtensionEnabled = true;
 let appliedRules = new Set(); // Track applied rules to prevent duplicate notifications
 let isUpdatingRules = false; // Prevent concurrent rule updates
+let environmentVariables = []; // Cache environment variables
 
 // Initialize extension
 chrome.runtime.onInstalled.addListener(async () => {
@@ -20,7 +21,16 @@ chrome.runtime.onInstalled.addListener(async () => {
     });
   }
   
+  // Load environment variables
+  await loadEnvironmentVariables();
+  
   console.log('FreshRoute installed');
+});
+
+// Also load environment variables on startup
+chrome.runtime.onStartup.addListener(async () => {
+  await loadEnvironmentVariables();
+  console.log('FreshRoute started');
 });
 
 // Listen for storage changes to update rules
@@ -36,6 +46,14 @@ chrome.storage.onChanged.addListener(async (changes, namespace) => {
       notifyAllTabs('updateNotificationSettings', {
         enabled: changes.notificationsEnabled.newValue
       });
+    }
+    
+    if (changes.environmentVariables) {
+      // Reload environment variables and update rules
+      console.log('🔄 Environment variables changed, reloading and updating rules...');
+      await loadEnvironmentVariables();
+      await updateDeclarativeRules();
+      console.log('✅ Rules updated after environment variable change');
     }
   }
   
@@ -84,7 +102,9 @@ chrome.webRequest.onBeforeRedirect.addListener(async (details) => {
   // Check if this redirect matches one of our rules
   for (const rule of allRules) {
     try {
-      const regex = new RegExp(rule.sourceUrl);
+      // Substitute variables in the source URL pattern for matching
+      const sourceUrlWithVariables = substituteVariables(rule.sourceUrl);
+      const regex = new RegExp(sourceUrlWithVariables);
       if (regex.test(details.url)) {
         const ruleKey = `${rule.type}-${rule.name}-${details.url}`;
         
@@ -174,23 +194,54 @@ async function updateDeclarativeRules() {
 
     let allRules = [];
     
-    // Use new grouped format if available, otherwise fall back to old format
+    // Process groups and substitute variables at runtime
     if (groups && groups.length > 0) {
-      // Extract rules from enabled groups only
+      // Extract rules from enabled groups and substitute variables
       groups.forEach((group, groupIndex) => {
         if (group.enabled !== false) { // Group is enabled
           if (group.rules) {
             group.rules.forEach((rule, ruleIndex) => {
               if (rule.enabled) { // Individual rule is enabled
-                allRules.push({...rule, _groupIndex: groupIndex, _ruleIndex: ruleIndex});
+                // Create a copy of the rule and substitute variables
+                const processedRule = { ...rule, _groupIndex: groupIndex, _ruleIndex: ruleIndex };
+                
+                if (rule.type === 'url_rewrite') {
+                  processedRule.sourceUrl = substituteVariables(rule.sourceUrl);
+                  processedRule.targetUrl = substituteVariables(rule.targetUrl);
+                } else if (rule.type === 'modify_headers') {
+                  processedRule.urlPattern = substituteVariables(rule.urlPattern);
+                  processedRule.headers = rule.headers.map(header => ({
+                    ...header,
+                    name: substituteVariables(header.name),
+                    value: substituteVariables(header.value)
+                  }));
+                }
+                
+                allRules.push(processedRule);
               }
             });
           }
         }
       });
     } else if (rules && rules.length > 0) {
-      // Fall back to old flat format
-      allRules = rules.filter(rule => rule.enabled);
+      // Fall back to old flat format and substitute variables
+      allRules = rules.filter(rule => rule.enabled).map(rule => {
+        const processedRule = { ...rule };
+        
+        if (rule.type === 'url_rewrite') {
+          processedRule.sourceUrl = substituteVariables(rule.sourceUrl);
+          processedRule.targetUrl = substituteVariables(rule.targetUrl);
+        } else if (rule.type === 'modify_headers') {
+          processedRule.urlPattern = substituteVariables(rule.urlPattern);
+          processedRule.headers = rule.headers.map(header => ({
+            ...header,
+            name: substituteVariables(header.name),
+            value: substituteVariables(header.value)
+          }));
+        }
+        
+        return processedRule;
+      });
     }
 
     if (allRules.length === 0) {
@@ -555,9 +606,13 @@ async function notifyAllTabs(action, data) {
 // Handle messages from popup/options
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'updateRules') {
-    updateDeclarativeRules().then(() => {
+    // Reload environment variables first, then update rules
+    loadEnvironmentVariables().then(() => {
+      return updateDeclarativeRules();
+    }).then(() => {
       sendResponse({ success: true });
     }).catch(error => {
+      console.error('❌ Error updating rules:', error);
       sendResponse({ success: false, error: error.message });
     });
     return true; // Will respond asynchronously
@@ -776,4 +831,46 @@ function normalizeRegexPattern(sourcePattern) {
     console.warn(`⚠️ Normalized regex failed, using original: ${e.message}`);
     return sourcePattern;
   }
+}
+
+// Load environment variables from storage
+async function loadEnvironmentVariables() {
+  try {
+    const result = await chrome.storage.sync.get(['environmentVariables']);
+    const oldCount = environmentVariables.length;
+    environmentVariables = result.environmentVariables || [];
+    console.log(`📋 Loaded ${environmentVariables.length} environment variables (was ${oldCount})`);
+    
+    // Log the variables for debugging
+    if (environmentVariables.length > 0) {
+      console.log('📝 Environment variables:', environmentVariables.map(v => `${v.name}="${v.value}"`));
+    }
+  } catch (error) {
+    console.error('❌ Error loading environment variables:', error);
+    environmentVariables = [];
+  }
+}
+
+// Substitute environment variables in text
+function substituteVariables(text) {
+  if (!text || typeof text !== 'string') return text;
+  
+  let result = text;
+  let substitutionsMade = 0;
+  
+  environmentVariables.forEach(variable => {
+    const pattern = new RegExp(`\\{\\{${variable.name}\\}\\}`, 'g');
+    const matches = text.match(pattern);
+    if (matches) {
+      result = result.replace(pattern, variable.value);
+      substitutionsMade += matches.length;
+      console.log(`🔄 Substituted {{${variable.name}}} with "${variable.value}" (${matches.length} times)`);
+    }
+  });
+  
+  if (substitutionsMade > 0) {
+    console.log(`📝 Variable substitution: "${text}" → "${result}"`);
+  }
+  
+  return result;
 }

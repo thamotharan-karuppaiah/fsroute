@@ -4,6 +4,8 @@ let groups = [];
 let editingGroupIndex = null;
 let editingRuleIndex = null;
 let editingRuleType = null;
+let environmentVariables = [];
+let editingEnvironmentVariableIndex = null;
 
 // Preset group templates
 const PRESET_TEMPLATES = {
@@ -148,9 +150,11 @@ function escapeRegex(str) {
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadGroupsAndRules();
+  await loadEnvironmentVariables();
   setupEventListeners();
   setupSettingsListeners();
   renderGroups();
+  renderEnvironmentVariables();
   loadSettings();
 });
 
@@ -178,6 +182,12 @@ function setupEventListeners() {
   document.getElementById('closePresetModal').addEventListener('click', () => closePresetModal());
   document.getElementById('createPresetGroupBtn').addEventListener('click', () => createPresetGroup());
   document.getElementById('cancelPresetBtn').addEventListener('click', () => closePresetModal());
+
+  // Environment Variable buttons
+  document.getElementById('addEnvironmentVariableBtn').addEventListener('click', () => openEnvironmentVariableModal());
+  document.getElementById('closeEnvironmentVariableModal').addEventListener('click', () => closeEnvironmentVariableModal());
+  document.getElementById('saveEnvironmentVariableBtn').addEventListener('click', () => saveEnvironmentVariable());
+  document.getElementById('cancelEnvironmentVariableBtn').addEventListener('click', () => closeEnvironmentVariableModal());
 
   // Import button (unified)
   document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
@@ -217,30 +227,12 @@ function setupEventListeners() {
     }
   });
 
-  // Close modals when clicking outside
-  document.getElementById('urlRuleModal').addEventListener('click', (event) => {
-    if (event.target === document.getElementById('urlRuleModal')) {
-      closeUrlRuleModal();
-    }
-  });
+  // Close modals when clicking outside - REPLACED by setupModalCloseHandling()
+  // Old logic removed to prevent issues with text selection and drag operations
+  // The new logic in setupModalCloseHandling() properly handles these cases
 
-  document.getElementById('headerRuleModal').addEventListener('click', (event) => {
-    if (event.target === document.getElementById('headerRuleModal')) {
-      closeHeaderRuleModal();
-    }
-  });
-
-  document.getElementById('groupModal').addEventListener('click', (event) => {
-    if (event.target === document.getElementById('groupModal')) {
-      closeGroupModal();
-    }
-  });
-
-  document.getElementById('presetModal').addEventListener('click', (event) => {
-    if (event.target === document.getElementById('presetModal')) {
-      closePresetModal();
-    }
-  });
+  // Improved modal close logic that handles text selection properly
+  setupModalCloseHandling();
 
   // Keyboard shortcuts
   document.addEventListener('keydown', (event) => {
@@ -249,6 +241,7 @@ function setupEventListeners() {
       closeHeaderRuleModal();
       closeGroupModal();
       closePresetModal();
+      closeEnvironmentVariableModal();
     }
   });
 
@@ -260,6 +253,23 @@ function setupEventListeners() {
         dropdown.classList.remove('show');
       }
     });
+  });
+
+  // Tab switching functionality
+  document.querySelectorAll('.tab-button').forEach(button => {
+    button.addEventListener('click', (e) => {
+      const targetTab = e.currentTarget.dataset.tab;
+      switchTab(targetTab);
+    });
+  });
+
+  // View switching functionality
+  document.getElementById('settingsToggleBtn').addEventListener('click', () => {
+    showSettingsView();
+  });
+  
+  document.getElementById('backToRulesBtn').addEventListener('click', () => {
+    showRulesView();
   });
 }
 
@@ -321,6 +331,102 @@ async function loadGroupsAndRules() {
   }
 }
 
+// Load environment variables
+async function loadEnvironmentVariables() {
+  try {
+    const result = await chrome.storage.sync.get(['environmentVariables']);
+    environmentVariables = result.environmentVariables || [];
+  } catch (error) {
+    console.error('Error loading environment variables:', error);
+    environmentVariables = [];
+  }
+}
+
+// Save environment variables
+async function saveEnvironmentVariables() {
+  try {
+    await chrome.storage.sync.set({ environmentVariables });
+    console.log('💾 Environment variables saved to storage');
+    
+    // Explicitly trigger rule update in background script
+    // Small delay to ensure storage change is processed first
+    setTimeout(() => {
+      console.log('🚀 Triggering rule update...');
+      chrome.runtime.sendMessage({ action: 'updateRules' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('❌ Error sending update message:', chrome.runtime.lastError);
+        } else if (response && response.success) {
+          console.log('✅ Rules updated successfully after environment variable change');
+        } else {
+          console.warn('⚠️ Rule update may have failed:', response?.error);
+        }
+      });
+    }, 50); // Reduced timeout for faster response
+    
+  } catch (error) {
+    console.error('Error saving environment variables:', error);
+    alert('Error saving environment variables. Please try again.');
+  }
+}
+
+// Render environment variables
+function renderEnvironmentVariables() {
+  const container = document.getElementById('environmentVariables');
+  
+  if (environmentVariables.length === 0) {
+    container.innerHTML = `
+      <div class="env-empty-state">
+        <h3>📋 No Environment Variables</h3>
+        <p>Create reusable variables to avoid repetition in your rules.</p>
+        <p>Variables can be used in URL patterns, target URLs, and header values.</p>
+        <p>Click "Add Variable" to create your first environment variable.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="env-variables-container">
+      ${environmentVariables.map((variable, index) => `
+        <div class="env-variable-card">
+          <div class="env-variable-info">
+            <div class="env-variable-name">${escapeHtml(variable.name)}</div>
+            <div class="env-variable-value">Value: ${escapeHtml(variable.value)}</div>
+            ${variable.description ? `<div class="env-variable-description">${escapeHtml(variable.description)}</div>` : ''}
+            <div class="env-variable-usage">Usage: {{${escapeHtml(variable.name)}}}</div>
+          </div>
+          <div class="env-variable-actions">
+            <button class="btn btn-secondary btn-small env-variable-edit" data-index="${index}">Edit</button>
+            <button class="btn btn-danger btn-small env-variable-delete" data-index="${index}">Delete</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  // Add event listeners for environment variable actions
+  addEnvironmentVariableListeners();
+}
+
+// Add event listeners for environment variable controls
+function addEnvironmentVariableListeners() {
+  // Edit buttons
+  document.querySelectorAll('.env-variable-edit').forEach(button => {
+    button.addEventListener('click', (e) => {
+      const index = parseInt(e.target.dataset.index);
+      editEnvironmentVariable(index);
+    });
+  });
+
+  // Delete buttons
+  document.querySelectorAll('.env-variable-delete').forEach(button => {
+    button.addEventListener('click', (e) => {
+      const index = parseInt(e.target.dataset.index);
+      deleteEnvironmentVariable(index);
+    });
+  });
+}
+
 // Migrate from old flat rules format to grouped format
 async function migrateFromOldFormat(oldRules) {
   if (oldRules.length === 0) return [];
@@ -343,10 +449,16 @@ async function saveGroups() {
     // Use local storage for large data (rules and groups)
     await chrome.storage.local.set({ groups });
     
-    // Also save in old format for backward compatibility with local storage
+    // Also save flat rules for backward compatibility (without variable substitution)
     const flatRules = [];
     groups.forEach(group => {
-      flatRules.push(...group.rules);
+      if (group.enabled !== false) {
+        group.rules.forEach(rule => {
+          if (rule.enabled) {
+            flatRules.push(rule);
+          }
+        });
+      }
     });
     await chrome.storage.local.set({ rules: flatRules });
     
@@ -810,6 +922,10 @@ function openUrlRuleModal(groupIndex = null, ruleIndex = null) {
   clearRegexResult('sourceUrlResult');
   clearRegexResult('targetUrlPreview');
 
+  // Add variable support to input fields
+  addVariableSuggestions(sourceInput);
+  addVariableSuggestions(targetInput);
+
   modal.style.display = 'block';
   sourceInput.focus();
 }
@@ -916,6 +1032,9 @@ function openHeaderRuleModal(groupIndex = null, ruleIndex = null) {
   resetTestSection('headerUrlTestSection', 'toggleHeaderUrlTest');
   clearRegexResult('headerUrlResult');
 
+  // Add variable support to input fields
+  addVariableSuggestions(urlPatternInput);
+
   modal.style.display = 'block';
   urlPatternInput.focus();
 }
@@ -986,6 +1105,7 @@ function renderHeaderFields(headers = []) {
 function addHeaderFieldListeners() {
   // Header name inputs
   document.querySelectorAll('.header-name').forEach(input => {
+    addVariableSuggestions(input);
     input.addEventListener('change', (e) => {
       const index = parseInt(e.target.dataset.index);
       updateHeaderField(index, 'name', e.target.value);
@@ -1010,6 +1130,7 @@ function addHeaderFieldListeners() {
 
   // Header value inputs
   document.querySelectorAll('.header-value').forEach(input => {
+    addVariableSuggestions(input);
     input.addEventListener('change', (e) => {
       const index = parseInt(e.target.dataset.index);
       updateHeaderField(index, 'value', e.target.value);
@@ -1307,12 +1428,24 @@ function testRegexPattern(sourceField, testField, resultField, targetField, prev
   }
   
   try {
-    const regex = new RegExp(sourcePattern);
+    // ✅ FIX: Substitute environment variables before testing
+    const substitutedPattern = substituteVariables(sourcePattern);
+    
+    // Show variable substitution info if variables were replaced
+    let infoHtml = '';
+    if (substitutedPattern !== sourcePattern) {
+      infoHtml = `<div class="variable-substitution-info">
+        <strong>Original pattern:</strong> <code>${escapeHtml(sourcePattern)}</code><br>
+        <strong>After variable substitution:</strong> <code>${escapeHtml(substitutedPattern)}</code>
+      </div>`;
+    }
+    
+    const regex = new RegExp(substitutedPattern);
     const match = testUrl.match(regex);
     
     if (match) {
       resultElement.className = 'regex-result success';
-      let resultHtml = '✅ <strong>Pattern matches!</strong>';
+      let resultHtml = infoHtml + '✅ <strong>Pattern matches!</strong>';
       
       // Show capture groups if they exist
       if (match.length > 1) {
@@ -1335,7 +1468,7 @@ function testRegexPattern(sourceField, testField, resultField, targetField, prev
       
     } else {
       resultElement.className = 'regex-result no-match';
-      resultElement.innerHTML = '❌ <strong>No match found</strong><br><small>Your pattern doesn\'t match the test URL</small>';
+      resultElement.innerHTML = infoHtml + '❌ <strong>No match found</strong><br><small>Your pattern doesn\'t match the test URL</small>';
     }
     
   } catch (error) {
@@ -1348,7 +1481,8 @@ function showTargetUrlPreview(targetPattern, match, previewField) {
   const previewElement = document.getElementById(previewField);
   
   try {
-    let targetUrl = targetPattern;
+    // ✅ FIX: Substitute environment variables in target pattern too
+    let targetUrl = substituteVariables(targetPattern);
     
     // Replace capture groups in target URL
     for (let i = 1; i < match.length; i++) {
@@ -1357,8 +1491,15 @@ function showTargetUrlPreview(targetPattern, match, previewField) {
       targetUrl = targetUrl.replace(new RegExp('\\' + placeholder, 'g'), replacement);
     }
     
+    // Show variable substitution info if variables were replaced
+    let infoHtml = '';
+    if (substituteVariables(targetPattern) !== targetPattern) {
+      infoHtml = `<strong>Target pattern with variables substituted:</strong> <code>${escapeHtml(substituteVariables(targetPattern))}</code><br>`;
+    }
+    
     previewElement.innerHTML = `
-      <strong>Target URL Preview:</strong><br>
+      ${infoHtml}
+      <strong>Final Target URL:</strong><br>
       <span class="preview-url">${escapeHtml(targetUrl)}</span>
     `;
     
@@ -1640,4 +1781,389 @@ function createPresetGroup() {
 function goBackToPresetSelection() {
   document.getElementById('presetSelection').style.display = 'block';
   document.getElementById('presetConfiguration').style.display = 'none';
-} 
+}
+
+// Environment Variable functions
+function openEnvironmentVariableModal(variableIndex = null) {
+  editingEnvironmentVariableIndex = variableIndex;
+  
+  const modal = document.getElementById('environmentVariableModal');
+  const nameInput = document.getElementById('environmentVariableName');
+  const valueInput = document.getElementById('environmentVariableValue');
+  const descriptionInput = document.getElementById('environmentVariableDescription');
+
+  if (variableIndex !== null) {
+    const variable = environmentVariables[variableIndex];
+    nameInput.value = variable.name || '';
+    valueInput.value = variable.value || '';
+    descriptionInput.value = variable.description || '';
+  } else {
+    nameInput.value = '';
+    valueInput.value = '';
+    descriptionInput.value = '';
+  }
+
+  modal.style.display = 'block';
+  nameInput.focus();
+}
+
+function closeEnvironmentVariableModal() {
+  const modal = document.getElementById('environmentVariableModal');
+  modal.style.display = 'none';
+  editingEnvironmentVariableIndex = null;
+}
+
+function editEnvironmentVariable(index) {
+  openEnvironmentVariableModal(index);
+}
+
+async function deleteEnvironmentVariable(index) {
+  if (confirm('Are you sure you want to delete this environment variable?')) {
+    environmentVariables.splice(index, 1);
+    await saveEnvironmentVariables();
+    renderEnvironmentVariables();
+  }
+}
+
+async function saveEnvironmentVariable() {
+  const name = document.getElementById('environmentVariableName').value.trim().toUpperCase();
+  const value = document.getElementById('environmentVariableValue').value.trim();
+  const description = document.getElementById('environmentVariableDescription').value.trim();
+
+  if (!name || !value) {
+    alert('Please enter both name and value for the environment variable.');
+    return;
+  }
+
+  // Validate variable name (only letters, numbers, and underscores)
+  if (!/^[A-Z0-9_]+$/.test(name)) {
+    alert('Variable name can only contain uppercase letters, numbers, and underscores.');
+    return;
+  }
+
+  // Check for duplicate names (excluding current variable if editing)
+  const existingIndex = environmentVariables.findIndex(v => v.name === name);
+  if (existingIndex !== -1 && existingIndex !== editingEnvironmentVariableIndex) {
+    alert('A variable with this name already exists. Please choose a different name.');
+    return;
+  }
+
+  const variable = {
+    id: editingEnvironmentVariableIndex !== null ? environmentVariables[editingEnvironmentVariableIndex].id : Date.now(),
+    name,
+    value,
+    description
+  };
+
+  if (editingEnvironmentVariableIndex !== null) {
+    environmentVariables[editingEnvironmentVariableIndex] = variable;
+  } else {
+    environmentVariables.push(variable);
+  }
+
+  await saveEnvironmentVariables();
+  renderEnvironmentVariables();
+  closeEnvironmentVariableModal();
+}
+
+// Variable substitution function
+function substituteVariables(text) {
+  if (!text || typeof text !== 'string') return text;
+  
+  let result = text;
+  environmentVariables.forEach(variable => {
+    const pattern = new RegExp(`\\{\\{${variable.name}\\}\\}`, 'g');
+    result = result.replace(pattern, variable.value);
+  });
+  
+  return result;
+}
+
+// Function to show preview of variable substitution
+function showVariablePreview(inputElement) {
+  const text = inputElement.value;
+  const substituted = substituteVariables(text);
+  
+  if (text !== substituted) {
+    // Create or update preview element
+    let preview = inputElement.parentNode.querySelector('.env-variable-preview');
+    if (!preview) {
+      preview = document.createElement('div');
+      preview.className = 'env-variable-preview';
+      inputElement.parentNode.appendChild(preview);
+    }
+    preview.innerHTML = `<strong>Preview:</strong> ${escapeHtml(substituted)}`;
+  } else {
+    // Remove preview if no variables found
+    const preview = inputElement.parentNode.querySelector('.env-variable-preview');
+    if (preview) {
+      preview.remove();
+    }
+  }
+}
+
+// Function to add variable suggestions to input fields
+function addVariableSuggestions(inputElement) {
+  if (environmentVariables.length === 0) return;
+  
+  // Store reference for cleanup
+  let activeSuggestions = null;
+  
+  inputElement.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && e.ctrlKey) {
+      e.preventDefault();
+      showVariableSuggestions(inputElement);
+    }
+    
+    // Handle arrow keys and Enter for suggestion navigation
+    if (activeSuggestions && activeSuggestions.style.display === 'block') {
+      const suggestions = activeSuggestions.querySelectorAll('.variable-suggestion');
+      let selectedIndex = Array.from(suggestions).findIndex(s => s.classList.contains('selected'));
+      
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedIndex = Math.min(selectedIndex + 1, suggestions.length - 1);
+        updateSuggestionSelection(suggestions, selectedIndex);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedIndex = Math.max(selectedIndex - 1, 0);
+        updateSuggestionSelection(suggestions, selectedIndex);
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        if (selectedIndex >= 0 && suggestions[selectedIndex]) {
+          selectSuggestion(inputElement, suggestions[selectedIndex], activeSuggestions);
+        }
+      } else if (e.key === 'Escape') {
+        hideSuggestions(activeSuggestions);
+        activeSuggestions = null;
+      }
+    }
+  });
+  
+  inputElement.addEventListener('input', (e) => {
+    showVariablePreview(inputElement);
+    
+    // Check for inline variable suggestions
+    const cursorPos = inputElement.selectionStart;
+    const textBeforeCursor = inputElement.value.substring(0, cursorPos);
+    
+    // Find the last occurrence of {{ before cursor
+    const lastBraceIndex = textBeforeCursor.lastIndexOf('{{');
+    const lastCloseBraceIndex = textBeforeCursor.lastIndexOf('}}');
+    
+    // Show suggestions if we have {{ without closing }} after it
+    if (lastBraceIndex !== -1 && (lastCloseBraceIndex === -1 || lastCloseBraceIndex < lastBraceIndex)) {
+      const searchTerm = textBeforeCursor.substring(lastBraceIndex + 2);
+      activeSuggestions = showInlineSuggestions(inputElement, searchTerm, lastBraceIndex);
+    } else {
+      // Hide suggestions if not in variable context
+      if (activeSuggestions) {
+        hideSuggestions(activeSuggestions);
+        activeSuggestions = null;
+      }
+    }
+  });
+  
+  // Hide suggestions when input loses focus
+  inputElement.addEventListener('blur', (e) => {
+    // Small delay to allow clicking on suggestions
+    setTimeout(() => {
+      if (activeSuggestions && !activeSuggestions.contains(document.activeElement)) {
+        hideSuggestions(activeSuggestions);
+        activeSuggestions = null;
+      }
+    }, 200);
+  });
+}
+
+// Show inline suggestions as user types
+function showInlineSuggestions(inputElement, searchTerm, braceIndex) {
+  // Remove existing suggestions
+  hideSuggestions();
+  
+  // Filter variables based on search term
+  const filteredVariables = environmentVariables.filter(variable =>
+    variable.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
+  if (filteredVariables.length === 0) return null;
+  
+  // Create suggestions dropdown
+  const suggestions = document.createElement('div');
+  suggestions.className = 'variable-suggestions inline-suggestions';
+  suggestions.style.display = 'block';
+  
+  filteredVariables.forEach((variable, index) => {
+    const suggestion = document.createElement('div');
+    suggestion.className = 'variable-suggestion';
+    if (index === 0) suggestion.classList.add('selected'); // Pre-select first item
+    
+    // Highlight matching text
+    const highlightedName = highlightSearchTerm(variable.name, searchTerm);
+    
+    suggestion.innerHTML = `
+      <span class="variable-suggestion-name">{{${highlightedName}}}</span>
+      <span class="variable-suggestion-value">${escapeHtml(variable.value)}</span>
+    `;
+    
+    suggestion.addEventListener('mousedown', (e) => {
+      e.preventDefault(); // Prevent blur event
+      selectSuggestion(inputElement, suggestion, suggestions, braceIndex, searchTerm);
+    });
+    
+    suggestion.addEventListener('mouseenter', () => {
+      // Remove selected class from all suggestions
+      suggestions.querySelectorAll('.variable-suggestion').forEach(s => s.classList.remove('selected'));
+      // Add selected class to hovered suggestion
+      suggestion.classList.add('selected');
+    });
+    
+    suggestions.appendChild(suggestion);
+  });
+  
+  // Position suggestions below the input
+  const rect = inputElement.getBoundingClientRect();
+  const container = inputElement.offsetParent || document.body;
+  
+  suggestions.style.position = 'absolute';
+  suggestions.style.top = (inputElement.offsetTop + inputElement.offsetHeight) + 'px';
+  suggestions.style.left = inputElement.offsetLeft + 'px';
+  suggestions.style.width = Math.max(rect.width, 250) + 'px';
+  suggestions.style.zIndex = '2000';
+  
+  container.appendChild(suggestions);
+  
+  return suggestions;
+}
+
+// Highlight search term in variable name
+function highlightSearchTerm(text, searchTerm) {
+  if (!searchTerm) return escapeHtml(text);
+  
+  const regex = new RegExp(`(${escapeRegex(searchTerm)})`, 'gi');
+  return escapeHtml(text).replace(regex, '<mark style="background: #FFE082; color: #F57C00;">$1</mark>');
+}
+
+// Update suggestion selection
+function updateSuggestionSelection(suggestions, selectedIndex) {
+  suggestions.forEach((suggestion, index) => {
+    suggestion.classList.toggle('selected', index === selectedIndex);
+  });
+}
+
+// Select a suggestion and insert it into the input
+function selectSuggestion(inputElement, suggestionElement, suggestionsContainer, braceIndex, searchTerm) {
+  const variableName = suggestionElement.querySelector('.variable-suggestion-name').textContent.replace(/[{}]/g, '');
+  
+  if (typeof braceIndex !== 'undefined') {
+    // Inline suggestion - replace from {{ onwards
+    const cursorPos = inputElement.selectionStart;
+    const textBefore = inputElement.value.substring(0, braceIndex);
+    const textAfter = inputElement.value.substring(cursorPos);
+    const variableText = `{{${variableName}}}`;
+    
+    inputElement.value = textBefore + variableText + textAfter;
+    inputElement.focus();
+    
+    const newCursorPos = textBefore.length + variableText.length;
+    inputElement.setSelectionRange(newCursorPos, newCursorPos);
+  } else {
+    // Manual suggestion (Ctrl+Tab) - insert at cursor
+    const cursorPos = inputElement.selectionStart;
+    const textBefore = inputElement.value.substring(0, cursorPos);
+    const textAfter = inputElement.value.substring(cursorPos);
+    const variableText = `{{${variableName}}}`;
+    
+    inputElement.value = textBefore + variableText + textAfter;
+    inputElement.focus();
+    inputElement.setSelectionRange(cursorPos + variableText.length, cursorPos + variableText.length);
+  }
+  
+  // Trigger input event to show preview
+  inputElement.dispatchEvent(new Event('input'));
+  
+  // Hide suggestions
+  hideSuggestions(suggestionsContainer);
+}
+
+// Hide suggestions
+function hideSuggestions(suggestionsContainer) {
+  if (suggestionsContainer) {
+    suggestionsContainer.remove();
+  }
+  
+  // Also remove any other existing suggestions
+  document.querySelectorAll('.variable-suggestions').forEach(s => s.remove());
+}
+
+// Setup improved modal close handling that prevents closing during text selection
+function setupModalCloseHandling() {
+  let isMouseDown = false;
+  let isDragging = false;
+  let mouseDownTarget = null;
+  
+  // Track mouse down events
+  document.addEventListener('mousedown', (event) => {
+    isMouseDown = true;
+    isDragging = false;
+    mouseDownTarget = event.target;
+  });
+  
+  // Track mouse move to detect dragging/text selection
+  document.addEventListener('mousemove', (event) => {
+    if (isMouseDown) {
+      isDragging = true;
+    }
+  });
+  
+  // Handle mouse up events for modal closing
+  document.addEventListener('mouseup', (event) => {
+    // Only handle modal closing if this was a simple click (not a drag/selection)
+    if (isMouseDown && !isDragging && mouseDownTarget === event.target) {
+      handleModalClose(event);
+    }
+    
+    // Reset tracking variables
+    isMouseDown = false;
+    isDragging = false;
+    mouseDownTarget = null;
+  });
+  
+  // Handle modal close for simple clicks
+  function handleModalClose(event) {
+    // Check each modal
+    const modals = [
+      { element: document.getElementById('urlRuleModal'), closeFunction: closeUrlRuleModal },
+      { element: document.getElementById('headerRuleModal'), closeFunction: closeHeaderRuleModal },
+      { element: document.getElementById('groupModal'), closeFunction: closeGroupModal },
+      { element: document.getElementById('presetModal'), closeFunction: closePresetModal },
+      { element: document.getElementById('environmentVariableModal'), closeFunction: closeEnvironmentVariableModal }
+    ];
+    
+    modals.forEach(modal => {
+      if (modal.element && event.target === modal.element) {
+        // Only close if clicking directly on the modal backdrop, not on any child elements
+        modal.closeFunction();
+      }
+    });
+  }
+}
+
+// View switching functions
+function showSettingsView() {
+  // Hide rules view and show settings view
+  document.getElementById('rulesView').classList.remove('active');
+  document.getElementById('settingsView').classList.add('active');
+  
+  // Update settings button state
+  document.getElementById('settingsToggleBtn').classList.add('active');
+}
+
+function showRulesView() {
+  // Hide settings view and show rules view
+  document.getElementById('settingsView').classList.remove('active');
+  document.getElementById('rulesView').classList.add('active');
+  
+  // Update settings button state
+  document.getElementById('settingsToggleBtn').classList.remove('active');
+}
