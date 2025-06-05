@@ -12,7 +12,7 @@ const PRESET_TEMPLATES = {
   freshservice: {
     name: 'Freshservice',
     description: 'Complete setup for Freshservice development environment with URL redirection and authentication headers',
-    icon: '🎫',
+    icon: 'icons/freshservice.png',
     variables: [
       {
         key: 'sourceDomain',
@@ -137,6 +137,39 @@ const PRESET_TEMPLATES = {
         }
       }
       
+      return rules;
+    }
+  },
+  freshdesk: {
+    name: 'Freshdesk',
+    description: 'Complete setup for Freshdesk development environment with URL redirection and authentication headers',
+    icon: 'icons/freshdesk.png',
+    variables: [],
+    disabled: true,
+    generateRules: function(variables) {
+      const rules = [];
+      return rules;
+    }
+  },
+  freshsales: {
+    name: 'Freshsales',
+    description: 'Complete setup for Freshsales development environment with URL redirection and authentication headers',
+    icon: 'icons/freshsales.png',
+    variables: [],
+    disabled: true,
+    generateRules: function(variables) {
+      const rules = [];
+      return rules;
+    }
+  },
+  freshmarketer: {
+    name: 'Freshmarketer',
+    description: 'Complete setup for Freshmarketer development environment with URL redirection and authentication headers',
+    icon: 'icons/freshmarketer.png',
+    variables: [],
+    disabled: true,
+    generateRules: function(variables) {
+      const rules = [];
       return rules;
     }
   }
@@ -276,6 +309,7 @@ function setupEventListeners() {
 // Setup settings listeners
 function setupSettingsListeners() {
   const notificationsToggle = document.getElementById('notificationsEnabledToggle');
+  const exportEnvVariablesToggle = document.getElementById('exportEnvironmentVariablesToggle');
   
   if (notificationsToggle) {
     notificationsToggle.addEventListener('change', async (e) => {
@@ -283,16 +317,28 @@ function setupSettingsListeners() {
       await chrome.storage.sync.set({ notificationsEnabled: enabled });
     });
   }
+  
+  if (exportEnvVariablesToggle) {
+    exportEnvVariablesToggle.addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      await chrome.storage.sync.set({ exportEnvironmentVariables: enabled });
+    });
+  }
 }
 
 // Load settings
 async function loadSettings() {
   try {
-    const { notificationsEnabled } = await chrome.storage.sync.get(['notificationsEnabled']);
+    const { notificationsEnabled, exportEnvironmentVariables } = await chrome.storage.sync.get(['notificationsEnabled', 'exportEnvironmentVariables']);
     const notificationsToggle = document.getElementById('notificationsEnabledToggle');
+    const exportEnvVariablesToggle = document.getElementById('exportEnvironmentVariablesToggle');
     
     if (notificationsToggle) {
       notificationsToggle.checked = notificationsEnabled !== false;
+    }
+    
+    if (exportEnvVariablesToggle) {
+      exportEnvVariablesToggle.checked = exportEnvironmentVariables === true; // Default to false
     }
   } catch (error) {
     console.error('Error loading settings:', error);
@@ -676,10 +722,10 @@ function addGroupControlListeners() {
   });
 
   document.querySelectorAll('.group-export').forEach(button => {
-    button.addEventListener('click', (e) => {
+    button.addEventListener('click', async (e) => {
       e.stopPropagation(); // Prevent header click
       const groupIndex = parseInt(e.target.dataset.groupIndex);
-      exportGroup(groupIndex);
+      await exportGroup(groupIndex);
     });
   });
 
@@ -807,13 +853,22 @@ function addRuleToGroup(groupIndex, ruleType) {
   }
 }
 
-function exportGroup(groupIndex) {
+async function exportGroup(groupIndex) {
   const group = groups[groupIndex];
+  
+  // Check if environment variables should be exported
+  const { exportEnvironmentVariables } = await chrome.storage.sync.get(['exportEnvironmentVariables']);
+  
   const exportData = {
     version: '1.0',
     exportDate: new Date().toISOString(),
     groups: [group]
   };
+  
+  // Include environment variables if setting is enabled
+  if (exportEnvironmentVariables === true && environmentVariables.length > 0) {
+    exportData.environmentVariables = environmentVariables;
+  }
   
   const fileName = `${group.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${new Date().toISOString().split('T')[0]}.json`;
   downloadJSON(exportData, fileName);
@@ -1284,6 +1339,28 @@ function importRules(event) {
         return;
       }
       
+      // Import environment variables if present and not already existing
+      let newVariablesCount = 0;
+      if (importData.environmentVariables && Array.isArray(importData.environmentVariables)) {
+        const existingVariableNames = new Set(environmentVariables.map(v => v.name));
+        
+        importData.environmentVariables.forEach(importedVar => {
+          if (!existingVariableNames.has(importedVar.name)) {
+            environmentVariables.push({
+              name: importedVar.name,
+              value: importedVar.value,
+              description: importedVar.description || ''
+            });
+            newVariablesCount++;
+          }
+        });
+        
+        if (newVariablesCount > 0) {
+          await saveEnvironmentVariables();
+          renderEnvironmentVariables();
+        }
+      }
+      
       // Add imported groups to existing groups
       importedGroups.forEach(group => {
         // Generate new ID to avoid conflicts
@@ -1303,7 +1380,15 @@ function importRules(event) {
       renderGroups();
       
       const totalRules = importedGroups.reduce((sum, g) => sum + g.rules.length, 0);
-      alert(`Successfully imported ${importedGroups.length} groups with ${totalRules} rules.`);
+      let successMessage = `Successfully imported ${importedGroups.length} groups with ${totalRules} rules.`;
+      
+      if (newVariablesCount > 0) {
+        successMessage += ` Also imported ${newVariablesCount} new environment variables.`;
+      } else if (importData.environmentVariables && importData.environmentVariables.length > 0) {
+        successMessage += ` Environment variables were found but skipped (already exist).`;
+      }
+      
+      alert(successMessage);
       
     } catch (error) {
       console.error('Import error:', error);
@@ -1636,24 +1721,33 @@ function openPresetModal() {
   presetsContainer.innerHTML = '';
   Object.entries(PRESET_TEMPLATES).forEach(([key, preset]) => {
     const presetCard = document.createElement('div');
-    presetCard.className = 'preset-card';
+    presetCard.className = `preset-card${preset.disabled ? ' preset-disabled' : ''}`;
+    
+    // Check if icon is an image file or text/emoji
+    const isImageIcon = preset.icon.includes('.') && (preset.icon.endsWith('.png') || preset.icon.endsWith('.jpg') || preset.icon.endsWith('.jpeg') || preset.icon.endsWith('.svg') || preset.icon.endsWith('.gif'));
+    const iconHTML = isImageIcon 
+      ? `<img src="${preset.icon}" alt="${preset.name} icon" style="width: 100%; height: 100%; object-fit: contain;">`
+      : preset.icon;
+    
+    const buttonHTML = preset.disabled 
+      ? `<button class="btn btn-secondary preset-select-btn" disabled>Coming Soon</button>`
+      : `<button class="btn btn-primary preset-select-btn" data-preset-key="${key}">Select Template</button>`;
+    
     presetCard.innerHTML = `
       <div class="preset-header">
-        <span class="preset-icon">${preset.icon}</span>
+        <span class="preset-icon">${iconHTML}</span>
         <div class="preset-info">
           <div class="preset-name">${preset.name}</div>
           <div class="preset-description">${preset.description}</div>
         </div>
       </div>
-      <button class="btn btn-primary preset-select-btn" data-preset-key="${key}">
-        Select Template
-      </button>
+      ${buttonHTML}
     `;
     presetsContainer.appendChild(presetCard);
   });
   
-  // Add event listeners for preset selection buttons
-  presetsContainer.querySelectorAll('.preset-select-btn').forEach(button => {
+  // Add event listeners for preset selection buttons (only for enabled presets)
+  presetsContainer.querySelectorAll('.preset-select-btn:not([disabled])').forEach(button => {
     button.addEventListener('click', (e) => {
       const presetKey = e.target.dataset.presetKey;
       selectPreset(presetKey);

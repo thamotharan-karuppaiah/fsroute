@@ -1290,6 +1290,25 @@
       transform: translateY(-1px);
     }
     
+    .preset-disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    
+    .preset-disabled:hover {
+      border-color: #e0e0e0 !important;
+      transform: none !important;
+      box-shadow: none !important;
+    }
+    
+    .preset-disabled .preset-select-btn {
+      cursor: not-allowed;
+    }
+    
+    .preset-disabled .preset-select-btn:hover {
+      transform: none !important;
+    }
+    
     .preset-config-header {
       margin-bottom: 20px;
     }
@@ -1601,6 +1620,19 @@
               </div>
               <label class="toggle-switch">
                 <input type="checkbox" id="notificationsEnabledToggle">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="settings-card">
+            <div class="settings-row">
+              <div class="settings-description">
+                <div class="settings-title">Export Environment Variables with Rules</div>
+                <div class="settings-subtitle">When enabled, environment variables will be included in exported JSON files. During import, environment variables will be created if they don't already exist with the same name.</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="exportEnvironmentVariablesToggle">
                 <span class="slider"></span>
               </label>
             </div>
