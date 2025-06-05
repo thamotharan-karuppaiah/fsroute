@@ -41,8 +41,39 @@
     
     .header-left h1 {
       margin: 0 0 10px 0;
-      font-size: 28px;
+      font-size: 24px;
       font-weight: 300;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .header-logo {
+      font-size: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      background: white;
+      border-radius: 12px;
+      backdrop-filter: blur(10px);
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      transition: all 0.3s ease;
+      padding: 6px;
+    }
+    
+    .header-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+    }
+    
+    .header-logo:hover {
+      background: rgba(255, 255, 255, 0.25);
+      transform: rotate(10deg) scale(1.05);
+      border-color: rgba(255, 255, 255, 0.4);
     }
     
     .header-left p {
@@ -138,7 +169,7 @@
     .settings-header h2 {
       margin: 0;
       color: #333;
-      font-size: 24px;
+      font-size: 20px;
       font-weight: 600;
     }
     
@@ -1102,6 +1133,17 @@
         font-size: 20px;
       }
       
+      .header-left h1 {
+        font-size: 24px;
+      }
+      
+      .header-logo {
+        width: 40px;
+        height: 40px;
+        font-size: 28px;
+        padding: 4px;
+      }
+      
       .header-row {
         grid-template-columns: 1fr;
         gap: 10px;
@@ -1472,7 +1514,12 @@
     <div class="header">
       <div class="header-content">
         <div class="header-left">
-          <h1>FreshRoute</h1>
+          <h1>
+            <span class="header-logo">
+              <img src="icons/icon128.png" alt="FreshRoute Logo">
+            </span>
+            FreshRoute
+          </h1>
           <p>Configure URL rewrite rules and header modifications</p>
         </div>
         <div class="header-right">
