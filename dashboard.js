@@ -218,13 +218,6 @@ function handleRuleActivity(message, sender, sendResponse) {
   if (message.type === 'ruleApplied') {
     const { rule, originalUrl, newUrl, responseTime } = message;
     
-    // Update stats
-    stats.rulesFired++;
-    stats.responseTimes.push(responseTime || 0);
-    if (stats.responseTimes.length > 100) {
-      stats.responseTimes = stats.responseTimes.slice(-100);
-    }
-    
     // Add log entry  
     const logType = (rule.type === 'url' || rule.type === 'url_rewrite') ? 'redirect' : 'header';
     const logMessage = (rule.type === 'url' || rule.type === 'url_rewrite')
@@ -232,9 +225,6 @@ function handleRuleActivity(message, sender, sendResponse) {
       : `Headers modified for ${originalUrl}`;
     
     addLogEntry(logType, logMessage, rule.name || 'Unnamed Rule');
-    
-    // Update dashboard stats
-    updateStats();
   }
 }
 
@@ -426,11 +416,6 @@ function clearLogs() {
   const logContainer = document.getElementById('liveLogContainer');
   logContainer.innerHTML = '<div class="log-entry"><span class="log-timestamp">[Logs cleared]</span><span class="log-url">Log history cleared</span></div>';
   
-  // Reset stats
-  stats.rulesFired = 0;
-  stats.responseTimes = [];
-  updateStats();
-  
   // Clear saved logs
   chrome.storage.local.set({ dashboardLogs: [] });
 }
@@ -467,8 +452,7 @@ window.FreshRouteDashboard = {
   startMonitoring,
   pauseMonitoring,
   clearLogs,
-  addLogEntry,
-  stats
+  addLogEntry
 };
 
 // Analyze URL against all rules with detailed debugging

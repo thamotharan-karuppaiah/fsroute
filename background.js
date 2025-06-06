@@ -110,28 +110,24 @@ chrome.webRequest.onBeforeRedirect.addListener(async (details) => {
         
         if (!appliedRules.has(ruleKey)) {
           appliedRules.add(ruleKey);
+          console.log(`🔐 Added to applied rules cache: ${ruleKey}`);
           
           // Clear the rule from cache after 10 seconds
           setTimeout(() => {
             appliedRules.delete(ruleKey);
+            console.log(`🗑️ Removed from applied rules cache: ${ruleKey}`);
           }, 10000);
           
           console.log(`✅ URL redirect detected: ${details.url} -> ${details.redirectUrl} (Rule: ${rule.name})`);
           
           // Send notification to the tab
-          try {
-            chrome.tabs.sendMessage(details.tabId, {
-              action: 'ruleApplied',
-              ruleName: rule.name,
-              ruleType: rule.type,
-              url: details.url,
-              redirectUrl: details.redirectUrl
-            }).catch(() => {
-              // Ignore errors if content script is not loaded
-            });
-          } catch (error) {
-            console.log('Could not send notification:', error);
-          }
+          await sendNotificationToTab(details.tabId, {
+            action: 'ruleApplied',
+            ruleName: rule.name,
+            ruleType: rule.type,
+            url: details.url,
+            redirectUrl: details.redirectUrl
+          });
           
           // Send rule activity to dashboard
           await sendRuleActivityToDashboard({
@@ -143,6 +139,8 @@ chrome.webRequest.onBeforeRedirect.addListener(async (details) => {
           });
           
           break; // Only notify for the first matching rule
+        } else {
+          console.log(`🔄 Rule already applied recently: ${ruleKey}`);
         }
       }
     } catch (e) {
@@ -192,28 +190,24 @@ chrome.webRequest.onSendHeaders.addListener(async (details) => {
         
         if (!appliedRules.has(ruleKey)) {
           appliedRules.add(ruleKey);
+          console.log(`🔐 Added to applied rules cache: ${ruleKey}`);
           
           // Clear the rule from cache after 10 seconds
           setTimeout(() => {
             appliedRules.delete(ruleKey);
+            console.log(`🗑️ Removed from applied rules cache: ${ruleKey}`);
           }, 10000);
           
           console.log(`✅ Header modification applied: ${details.url} (Rule: ${rule.name || 'Unnamed'})`);
           
           // Send notification to the tab if enabled
           if (notificationsEnabled) {
-            try {
-              chrome.tabs.sendMessage(details.tabId, {
-                action: 'ruleApplied',
-                ruleName: rule.name || 'Header Rule',
-                ruleType: 'header_modification',
-                url: details.url
-              }).catch(() => {
-                // Ignore errors if content script is not loaded
-              });
-            } catch (error) {
-              console.log('Could not send notification:', error);
-            }
+            await sendNotificationToTab(details.tabId, {
+              action: 'ruleApplied',
+              ruleName: rule.name || 'Header Rule',
+              ruleType: 'header_modification',
+              url: details.url
+            });
           }
           
           // Send rule activity to dashboard
@@ -226,6 +220,8 @@ chrome.webRequest.onSendHeaders.addListener(async (details) => {
           });
           
           break; // Only notify for the first matching rule
+        } else {
+          console.log(`🔄 Header rule already applied recently: ${ruleKey}`);
         }
       }
     } catch (e) {
@@ -693,6 +689,49 @@ async function notifyAllTabs(action, data) {
   } catch (error) {
     console.log('Error notifying tabs:', error);
   }
+}
+
+// Check if content script is available in a tab and send notification with retry
+async function sendNotificationToTab(tabId, notificationData, maxRetries = 2) {
+  let attempts = 0;
+  
+  const tryNotification = async () => {
+    attempts++;
+    try {
+      // First check if tab exists and is valid
+      const tab = await chrome.tabs.get(tabId);
+      if (!tab || !tab.url || (!tab.url.startsWith('http') && !tab.url.startsWith('https'))) {
+        console.log(`📱 Skipping notification - invalid tab URL: ${tab?.url || 'undefined'}`);
+        return false;
+      }
+      
+      // Check if tab is still loading
+      if (tab.status === 'loading') {
+        console.log(`📱 Tab still loading, waiting before notification attempt ${attempts}`);
+        if (attempts < maxRetries) {
+          setTimeout(() => tryNotification(), 1000);
+          return;
+        }
+      }
+      
+      await chrome.tabs.sendMessage(tabId, notificationData);
+      console.log(`📱 Notification sent successfully: ${notificationData.ruleName} (${notificationData.ruleType})`);
+      return true;
+      
+    } catch (error) {
+      console.log(`📱 Notification attempt ${attempts} failed:`, error.message);
+      
+      if (attempts < maxRetries) {
+        console.log(`📱 Retrying notification in 500ms (attempt ${attempts + 1}/${maxRetries})`);
+        setTimeout(() => tryNotification(), 500);
+      } else {
+        console.log(`📱 All notification attempts failed for rule: ${notificationData.ruleName}`);
+        return false;
+      }
+    }
+  };
+  
+  return tryNotification();
 }
 
 // Handle messages from popup/options

@@ -320,12 +320,20 @@ function setupEventListeners() {
 // Setup settings listeners
 function setupSettingsListeners() {
   const notificationsToggle = document.getElementById('notificationsEnabledToggle');
+  const compactNotificationsToggle = document.getElementById('compactNotificationsToggle');
   const exportEnvVariablesToggle = document.getElementById('exportEnvironmentVariablesToggle');
   
   if (notificationsToggle) {
     notificationsToggle.addEventListener('change', async (e) => {
       const enabled = e.target.checked;
       await chrome.storage.sync.set({ notificationsEnabled: enabled });
+    });
+  }
+  
+  if (compactNotificationsToggle) {
+    compactNotificationsToggle.addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      await chrome.storage.sync.set({ compactNotifications: enabled });
     });
   }
   
@@ -340,12 +348,17 @@ function setupSettingsListeners() {
 // Load settings
 async function loadSettings() {
   try {
-    const { notificationsEnabled, exportEnvironmentVariables } = await chrome.storage.sync.get(['notificationsEnabled', 'exportEnvironmentVariables']);
+    const { notificationsEnabled, compactNotifications, exportEnvironmentVariables } = await chrome.storage.sync.get(['notificationsEnabled', 'compactNotifications', 'exportEnvironmentVariables']);
     const notificationsToggle = document.getElementById('notificationsEnabledToggle');
+    const compactNotificationsToggle = document.getElementById('compactNotificationsToggle');
     const exportEnvVariablesToggle = document.getElementById('exportEnvironmentVariablesToggle');
     
     if (notificationsToggle) {
       notificationsToggle.checked = notificationsEnabled !== false;
+    }
+    
+    if (compactNotificationsToggle) {
+      compactNotificationsToggle.checked = compactNotifications !== false; // Default to true
     }
     
     if (exportEnvVariablesToggle) {
