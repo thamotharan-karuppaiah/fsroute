@@ -228,7 +228,7 @@ function setupEventListeners() {
 
   // Regex testing buttons
   document.getElementById('testSourceUrlBtn').addEventListener('click', () => testRegexPattern('sourceUrl', 'sourceUrlTest', 'sourceUrlResult', 'targetUrl', 'targetUrlPreview'));
-  document.getElementById('testHeaderUrlBtn').addEventListener('click', () => testRegexPattern('headerUrlPattern', 'headerUrlTest', 'headerUrlResult'));
+  document.getElementById('testHeaderUrlBtn').addEventListener('click', () => testHeaderRegexPattern('headerUrlPattern', 'headerUrlTest', 'headerUrlResult'));
 
   // Test section toggle buttons
   document.getElementById('toggleSourceUrlTest').addEventListener('click', () => toggleTestSection('sourceUrlTestSection', 'toggleSourceUrlTest', 'targetUrlExamples'));
@@ -249,6 +249,16 @@ function setupEventListeners() {
     if (testUrl && sourcePattern) {
       testRegexPattern('sourceUrl', 'sourceUrlTest', 'sourceUrlResult', 'targetUrl', 'targetUrlPreview');
     }
+  });
+
+  // Matching type change handler
+  document.getElementById('matchingType').addEventListener('change', () => {
+    updateMatchingTypeUI();
+  });
+
+  // Header matching type change handler
+  document.getElementById('headerMatchingType').addEventListener('change', () => {
+    updateHeaderMatchingTypeUI();
   });
 
   // Example pattern buttons
@@ -646,6 +656,7 @@ function renderRulesInGroup(rules, groupIndex) {
             </div>
           </div>
           <div class="rule-details">
+            <div><strong>Type:</strong> ${getMatchingTypeDisplayName(rule.matchingType || 'regex')}</div>
             <div><strong>Source:</strong> <code>${escapeHtml(rule.sourceUrl)}</code></div>
             <div><strong>Target:</strong> <code>${escapeHtml(rule.targetUrl)}</code></div>
           </div>
@@ -676,6 +687,7 @@ function renderRulesInGroup(rules, groupIndex) {
             </div>
           </div>
           <div class="rule-details">
+            <div><strong>Type:</strong> ${getMatchingTypeDisplayName(rule.matchingType || 'regex')}</div>
             <div><strong>URL Pattern:</strong> <code>${escapeHtml(rule.urlPattern)}</code></div>
             <div><strong>Headers:</strong></div>
             <ul>
@@ -983,14 +995,17 @@ function openUrlRuleModal(groupIndex = null, ruleIndex = null) {
   editingGroupIndex = groupIndex; // Store the group index for saving
   
   const modal = document.getElementById('urlRuleModal');
+  const matchingTypeSelect = document.getElementById('matchingType');
   const sourceInput = document.getElementById('sourceUrl');
   const targetInput = document.getElementById('targetUrl');
 
   if (groupIndex !== null && ruleIndex !== null) {
     const rule = groups[groupIndex].rules[ruleIndex];
+    matchingTypeSelect.value = rule.matchingType || 'regex';
     sourceInput.value = rule.sourceUrl || '';
     targetInput.value = rule.targetUrl || '';
   } else {
+    matchingTypeSelect.value = 'regex';
     sourceInput.value = '';
     targetInput.value = '';
   }
@@ -1000,6 +1015,9 @@ function openUrlRuleModal(groupIndex = null, ruleIndex = null) {
   resetTestSection('targetUrlExamples');
   clearRegexResult('sourceUrlResult');
   clearRegexResult('targetUrlPreview');
+
+  // Update UI based on matching type
+  updateMatchingTypeUI();
 
   // Add variable support to input fields
   addVariableSuggestions(sourceInput);
@@ -1021,6 +1039,7 @@ function editUrlRule(groupIndex, ruleIndex) {
 }
 
 async function saveUrlRule() {
+  const matchingType = document.getElementById('matchingType').value;
   const sourceUrl = document.getElementById('sourceUrl').value.trim();
   const targetUrl = document.getElementById('targetUrl').value.trim();
 
@@ -1034,28 +1053,43 @@ async function saveUrlRule() {
     return;
   }
 
-  // Validate regex
-  try {
-    new RegExp(sourceUrl);
-  } catch (e) {
-    alert('Invalid source URL regex pattern: ' + e.message);
-    return;
+  // Validate based on matching type
+  if (matchingType === 'regex') {
+    try {
+      new RegExp(sourceUrl);
+    } catch (e) {
+      alert('Invalid source URL regex pattern: ' + e.message);
+      return;
+    }
+  }
+  // For other matching types, basic validation
+  else {
+    if (matchingType === 'contains' && sourceUrl.length < 3) {
+      alert('Contains text should be at least 3 characters long for meaningful matching.');
+      return;
+    }
+    if (matchingType === 'startsWith' && !sourceUrl.includes('://')) {
+      if (!confirm('URL doesn\'t include protocol (http:// or https://). Continue anyway?')) {
+        return;
+      }
+    }
   }
 
   // Auto-generate rule name based on patterns
   let ruleName;
   if (editingRuleIndex !== null) {
     // Keep existing name if editing
-    ruleName = groups[editingGroupIndex].rules[editingRuleIndex].name || generateUrlRuleName(sourceUrl, targetUrl);
+    ruleName = groups[editingGroupIndex].rules[editingRuleIndex].name || generateUrlRuleName(sourceUrl, targetUrl, matchingType);
   } else {
     // Generate new name
-    ruleName = generateUrlRuleName(sourceUrl, targetUrl);
+    ruleName = generateUrlRuleName(sourceUrl, targetUrl, matchingType);
   }
 
   const rule = {
     id: editingRuleIndex !== null ? groups[editingGroupIndex].rules[editingRuleIndex].id : Date.now(),
     type: 'url_rewrite',
     name: ruleName,
+    matchingType: matchingType,
     sourceUrl,
     targetUrl,
     enabled: editingRuleIndex !== null ? groups[editingGroupIndex].rules[editingRuleIndex].enabled : true
@@ -1073,8 +1107,15 @@ async function saveUrlRule() {
 }
 
 // Helper function to generate descriptive rule names
-function generateUrlRuleName(sourceUrl, targetUrl) {
+function generateUrlRuleName(sourceUrl, targetUrl, matchingType) {
   try {
+    // For wildcard patterns, show a simplified description
+    if (matchingType === 'wildcard') {
+      const wildcardCount = (sourceUrl.match(/\*/g) || []).length;
+      const sourcePart = sourceUrl.replace(/\*/g, '*').substring(0, 30);
+      return `${sourcePart} (${wildcardCount} wildcard${wildcardCount > 1 ? 's' : ''})`;
+    }
+    
     // Extract meaningful parts from source and target URLs
     const sourceHost = sourceUrl.match(/https?:\/\/([^\/\(]+)/)?.[1] || 'source';
     const targetHost = targetUrl.match(/https?:\/\/([^\/\$]+)/)?.[1] || 'target';
@@ -1083,7 +1124,7 @@ function generateUrlRuleName(sourceUrl, targetUrl) {
     const cleanSource = sourceHost.replace(/[^\w.-]/g, '');
     const cleanTarget = targetHost.replace(/[^\w.-]/g, '');
     
-    return `${cleanSource} to ${cleanTarget}`;
+    return `${cleanSource} to ${cleanTarget} (${matchingType})`;
   } catch (e) {
     return `URL Rewrite Rule ${Date.now()}`;
   }
@@ -1096,13 +1137,16 @@ function openHeaderRuleModal(groupIndex = null, ruleIndex = null) {
   editingGroupIndex = groupIndex; // Store the group index for saving
   
   const modal = document.getElementById('headerRuleModal');
+  const headerMatchingTypeSelect = document.getElementById('headerMatchingType');
   const urlPatternInput = document.getElementById('headerUrlPattern');
 
   if (groupIndex !== null && ruleIndex !== null) {
     const rule = groups[groupIndex].rules[ruleIndex];
+    headerMatchingTypeSelect.value = rule.matchingType || 'regex';
     urlPatternInput.value = rule.urlPattern || '';
     renderHeaderFields(rule.headers || []);
   } else {
+    headerMatchingTypeSelect.value = 'regex';
     urlPatternInput.value = '';
     renderHeaderFields([]);
   }
@@ -1110,6 +1154,9 @@ function openHeaderRuleModal(groupIndex = null, ruleIndex = null) {
   // Reset test sections to hidden state
   resetTestSection('headerUrlTestSection', 'toggleHeaderUrlTest');
   clearRegexResult('headerUrlResult');
+
+  // Update UI based on matching type
+  updateHeaderMatchingTypeUI();
 
   // Add variable support to input fields
   addVariableSuggestions(urlPatternInput);
@@ -1256,6 +1303,7 @@ function updateHeaderField(index, field, value) {
 }
 
 async function saveHeaderRule() {
+  const headerMatchingType = document.getElementById('headerMatchingType').value;
   const urlPattern = document.getElementById('headerUrlPattern').value.trim();
   const headers = window.currentHeaders || [];
 
@@ -1286,28 +1334,43 @@ async function saveHeaderRule() {
     }
   }
 
-  // Validate regex
-  try {
-    new RegExp(urlPattern);
-  } catch (e) {
-    alert('Invalid URL pattern regex: ' + e.message);
-    return;
+  // Validate based on matching type
+  if (headerMatchingType === 'regex') {
+    try {
+      new RegExp(urlPattern);
+    } catch (e) {
+      alert('Invalid URL pattern regex: ' + e.message);
+      return;
+    }
+  }
+  // For other matching types, basic validation
+  else {
+    if (headerMatchingType === 'contains' && urlPattern.length < 3) {
+      alert('Contains text should be at least 3 characters long for meaningful matching.');
+      return;
+    }
+    if (headerMatchingType === 'startsWith' && !urlPattern.includes('://')) {
+      if (!confirm('URL doesn\'t include protocol (http:// or https://). Continue anyway?')) {
+        return;
+      }
+    }
   }
 
   // Auto-generate rule name based on URL pattern and headers
   let ruleName;
   if (editingRuleIndex !== null) {
     // Keep existing name if editing
-    ruleName = groups[editingGroupIndex].rules[editingRuleIndex].name || generateHeaderRuleName(urlPattern, headers);
+    ruleName = groups[editingGroupIndex].rules[editingRuleIndex].name || generateHeaderRuleName(urlPattern, headers, headerMatchingType);
   } else {
     // Generate new name
-    ruleName = generateHeaderRuleName(urlPattern, headers);
+    ruleName = generateHeaderRuleName(urlPattern, headers, headerMatchingType);
   }
 
   const rule = {
     id: editingRuleIndex !== null ? groups[editingGroupIndex].rules[editingRuleIndex].id : Date.now(),
     type: 'modify_headers',
     name: ruleName,
+    matchingType: headerMatchingType,
     urlPattern,
     headers: headers.filter(h => h.name.trim()),
     enabled: editingRuleIndex !== null ? groups[editingGroupIndex].rules[editingRuleIndex].enabled : true
@@ -1325,7 +1388,7 @@ async function saveHeaderRule() {
 }
 
 // Helper function to generate descriptive header rule names
-function generateHeaderRuleName(urlPattern, headers) {
+function generateHeaderRuleName(urlPattern, headers, headerMatchingType) {
   try {
     // Extract domain from URL pattern
     const domainMatch = urlPattern.match(/https?:\/\/([^\/\\\*\.\[]+)/)?.[1] || 
@@ -1335,7 +1398,7 @@ function generateHeaderRuleName(urlPattern, headers) {
     const headerNames = headers.slice(0, 2).map(h => h.name).join(', ');
     const moreCount = headers.length > 2 ? ` +${headers.length - 2}` : '';
     
-    return `${domainMatch} ${headerNames}${moreCount}`;
+    return `${domainMatch} ${headerNames}${moreCount} (${headerMatchingType})`;
   } catch (e) {
     return `Header Rule ${Date.now()}`;
   }
@@ -1511,6 +1574,7 @@ function resetTestSection(sectionId, toggleId) {
 
 // Regex testing functionality
 function testRegexPattern(sourceField, testField, resultField, targetField, previewField) {
+  const matchingType = document.getElementById('matchingType')?.value || 'regex';
   const sourcePattern = document.getElementById(sourceField).value.trim();
   const testUrl = document.getElementById(testField).value.trim();
   const resultElement = document.getElementById(resultField);
@@ -1526,7 +1590,7 @@ function testRegexPattern(sourceField, testField, resultField, targetField, prev
   
   if (!sourcePattern) {
     resultElement.className = 'regex-result error';
-    resultElement.textContent = 'Please enter a regex pattern first';
+    resultElement.textContent = 'Please enter a pattern first';
     return;
   }
   
@@ -1537,7 +1601,7 @@ function testRegexPattern(sourceField, testField, resultField, targetField, prev
   }
   
   try {
-    // ✅ FIX: Substitute environment variables before testing
+    // Substitute environment variables before testing
     const substitutedPattern = substituteVariables(sourcePattern);
     
     // Show variable substitution info if variables were replaced
@@ -1549,16 +1613,67 @@ function testRegexPattern(sourceField, testField, resultField, targetField, prev
       </div>`;
     }
     
-    const regex = new RegExp(substitutedPattern);
-    const match = testUrl.match(regex);
+    let isMatch = false;
+    let match = null;
     
-    if (match) {
+    // Test based on matching type
+    switch (matchingType) {
+      case 'contains':
+        isMatch = testUrl.includes(substitutedPattern);
+        match = isMatch ? [testUrl] : null; // No capture groups for contains
+        break;
+        
+      case 'equals':
+        isMatch = testUrl === substitutedPattern;
+        match = isMatch ? [testUrl] : null; // No capture groups for equals
+        break;
+        
+      case 'startsWith':
+        isMatch = testUrl.startsWith(substitutedPattern);
+        if (isMatch) {
+          const remainingPath = testUrl.substring(substitutedPattern.length);
+          match = [testUrl, remainingPath]; // Capture the remaining part
+        }
+        break;
+        
+      case 'endsWith':
+        isMatch = testUrl.endsWith(substitutedPattern);
+        match = isMatch ? [testUrl] : null; // No capture groups for endsWith
+        break;
+        
+      case 'wildcard':
+        // Convert wildcard pattern to regex for testing
+        const wildcardRegexPattern = convertWildcardToRegex(substitutedPattern);
+        const wildcardRegex = new RegExp(wildcardRegexPattern);
+        match = testUrl.match(wildcardRegex);
+        isMatch = !!match;
+        break;
+        
+      case 'regex':
+      default:
+        const regex = new RegExp(substitutedPattern);
+        match = testUrl.match(regex);
+        isMatch = !!match;
+        break;
+    }
+    
+    if (isMatch && match) {
       resultElement.className = 'regex-result success';
       let resultHtml = infoHtml + '✅ <strong>Pattern matches!</strong>';
       
-      // Show capture groups if they exist
-      if (match.length > 1) {
-        resultHtml += '<div class="capture-groups"><strong>Capture Groups:</strong><br>';
+      // Show capture groups if they exist (mainly for regex and startsWith)
+      if (match.length > 1 && (matchingType === 'regex' || matchingType === 'startsWith')) {
+        resultHtml += '<div class="capture-groups"><strong>Captured Parts:</strong><br>';
+        for (let i = 1; i < match.length; i++) {
+          const label = matchingType === 'startsWith' ? 'Remaining Path' : `$${i}`;
+          resultHtml += `<span class="capture-group">${label}: ${escapeHtml(match[i] || '')}</span>`;
+        }
+        resultHtml += '</div>';
+      }
+      
+      // Show capture groups for wildcard patterns
+      if (match.length > 1 && matchingType === 'wildcard') {
+        resultHtml += '<div class="capture-groups"><strong>Captured Wildcards:</strong><br>';
         for (let i = 1; i < match.length; i++) {
           resultHtml += `<span class="capture-group">$${i}: ${escapeHtml(match[i] || '')}</span>`;
         }
@@ -1571,7 +1686,7 @@ function testRegexPattern(sourceField, testField, resultField, targetField, prev
       if (targetField && previewField) {
         const targetPattern = document.getElementById(targetField).value.trim();
         if (targetPattern) {
-          showTargetUrlPreview(targetPattern, match, previewField);
+          showTargetUrlPreview(targetPattern, match, previewField, matchingType);
         }
       }
       
@@ -1582,22 +1697,42 @@ function testRegexPattern(sourceField, testField, resultField, targetField, prev
     
   } catch (error) {
     resultElement.className = 'regex-result error';
-    resultElement.innerHTML = `🚫 <strong>Invalid regex pattern</strong><br><small>${escapeHtml(error.message)}</small>`;
+    resultElement.innerHTML = `🚫 <strong>Invalid pattern</strong><br><small>${escapeHtml(error.message)}</small>`;
   }
 }
 
-function showTargetUrlPreview(targetPattern, match, previewField) {
+function showTargetUrlPreview(targetPattern, match, previewField, matchingType) {
   const previewElement = document.getElementById(previewField);
   
   try {
-    // ✅ FIX: Substitute environment variables in target pattern too
+    // Substitute environment variables in target pattern too
     let targetUrl = substituteVariables(targetPattern);
     
-    // Replace capture groups in target URL
-    for (let i = 1; i < match.length; i++) {
-      const placeholder = `$${i}`;
-      const replacement = match[i] || '';
-      targetUrl = targetUrl.replace(new RegExp('\\' + placeholder, 'g'), replacement);
+    // Handle different matching types
+    switch (matchingType) {
+      case 'startsWith':
+        // For startsWith, append the remaining path if it exists
+        if (match.length > 1) {
+          targetUrl = targetUrl + match[1]; // match[1] contains the remaining path
+        }
+        break;
+        
+      case 'wildcard':
+      case 'regex':
+        // Replace capture groups in target URL for regex and wildcard
+        for (let i = 1; i < match.length; i++) {
+          const placeholder = `$${i}`;
+          const replacement = match[i] || '';
+          targetUrl = targetUrl.replace(new RegExp('\\' + placeholder, 'g'), replacement);
+        }
+        break;
+        
+      case 'contains':
+      case 'equals':
+      case 'endsWith':
+      default:
+        // For these types, just use the target URL as-is (no capture groups)
+        break;
     }
     
     // Show variable substitution info if variables were replaced
@@ -2294,4 +2429,310 @@ function showSettingsView() {
   document.getElementById('rulesView').classList.remove('active');
   document.getElementById('settingsView').classList.add('active');
   updateTabNavigation('settings');
+}
+
+// Update UI based on matching type selection
+function updateMatchingTypeUI() {
+  const matchingType = document.getElementById('matchingType').value;
+  const sourceUrlLabel = document.getElementById('sourceUrlLabel');
+  const sourceUrlInput = document.getElementById('sourceUrl');
+  const sourceUrlHelp = document.getElementById('sourceUrlHelp');
+  const targetUrlHelp = document.getElementById('targetUrlHelp');
+  const testSection = document.getElementById('sourceUrlTestSection');
+  const toggleButton = document.getElementById('toggleSourceUrlTest');
+  
+  // Clear any existing test results
+  clearRegexResult('sourceUrlResult');
+  clearRegexResult('targetUrlPreview');
+  
+  switch (matchingType) {
+    case 'contains':
+      sourceUrlLabel.textContent = 'URL Contains';
+      sourceUrlInput.placeholder = 'e.g., localhost.freshservice-dev.com';
+      sourceUrlHelp.innerHTML = 'Enter text that should be found anywhere in the URL. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      targetUrlHelp.innerHTML = 'Enter the complete target URL. Use {{VARIABLE_NAME}} for environment variables.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+      
+    case 'equals':
+      sourceUrlLabel.textContent = 'URL Equals';
+      sourceUrlInput.placeholder = 'e.g., http://localhost.freshservice-dev.com:8080/api/test';
+      sourceUrlHelp.innerHTML = 'Enter the exact URL that should be matched. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      targetUrlHelp.innerHTML = 'Enter the complete target URL. Use {{VARIABLE_NAME}} for environment variables.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+      
+    case 'startsWith':
+      sourceUrlLabel.textContent = 'URL Starts With';
+      sourceUrlInput.placeholder = 'e.g., http://localhost.freshservice-dev.com:8080/';
+      sourceUrlHelp.innerHTML = 'Enter the beginning part of URLs that should be matched. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      targetUrlHelp.innerHTML = 'Enter the target URL prefix. The remaining part of the original URL will be appended. Use {{VARIABLE_NAME}} for environment variables.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+      
+    case 'endsWith':
+      sourceUrlLabel.textContent = 'URL Ends With';
+      sourceUrlInput.placeholder = 'e.g., /api/test';
+      sourceUrlHelp.innerHTML = 'Enter the ending part of URLs that should be matched. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      targetUrlHelp.innerHTML = 'Enter the complete target URL. Use {{VARIABLE_NAME}} for environment variables.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+      
+    case 'wildcard':
+      sourceUrlLabel.textContent = 'Wildcard Pattern';
+      sourceUrlInput.placeholder = 'e.g., http://localhost:*/api/* or https://*.example.com/*';
+      sourceUrlHelp.innerHTML = 'Use asterisks (*) as wildcards. Each * captures a part that can be referenced as $1, $2, etc. in the target URL. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      targetUrlHelp.innerHTML = 'Use $1, $2, etc. to reference captured wildcards from the pattern. Use {{VARIABLE_NAME}} for environment variables.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+      
+    case 'regex':
+    default:
+      sourceUrlLabel.textContent = 'Source URL Pattern';
+      sourceUrlInput.placeholder = 'e.g., http://localhost.freshservice-dev.com:8080/(.*)';
+      sourceUrlHelp.innerHTML = 'Use regex patterns. Use (.*) or $1, $2 for capture groups. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      targetUrlHelp.innerHTML = 'Use $1, $2, etc. to reference capture groups from source pattern. Use {{VARIABLE_NAME}} for environment variables.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+  }
+  
+  // Hide test section when switching types
+  if (testSection) {
+    testSection.style.display = 'none';
+    const toggle = document.getElementById('toggleSourceUrlTest');
+    const toggleText = toggle?.querySelector('.toggle-text');
+    if (toggle && toggleText) {
+      toggleText.textContent = 'Show Test';
+      toggle.classList.remove('expanded');
+    }
+  }
+}
+
+function getMatchingTypeDisplayName(matchingType) {
+  switch (matchingType) {
+    case 'contains':
+      return 'Contains';
+    case 'equals':
+      return 'Equals';
+    case 'startsWith':
+      return 'Starts With';
+    case 'endsWith':
+      return 'Ends With';
+    case 'wildcard':
+      return 'Wildcard';
+    case 'regex':
+      return 'Regex';
+    default:
+      return 'Unknown';
+  }
+}
+
+// Convert wildcard pattern to regex pattern
+function convertWildcardToRegex(wildcardPattern) {
+  // Escape all regex special characters except asterisks
+  let regexPattern = wildcardPattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  
+  // Replace asterisks with capture groups
+  // Use ([^/]*) for URL path segments, or (.*) for broader matching
+  regexPattern = regexPattern.replace(/\*/g, '([^/]*)');
+  
+  // For wildcards that should match across path separators (like full paths),
+  // we might need broader matching. Let's detect if we're in a path context:
+  if (regexPattern.includes('/') && regexPattern.match(/\([^/]*\)/g)) {
+    // If we have path separators and capture groups, consider broader matching for end patterns
+    regexPattern = regexPattern.replace(/\/\([^/]*\)$/g, '/(.*)')
+  }
+  
+  // Anchor the pattern
+  if (!regexPattern.startsWith('^')) {
+    regexPattern = '^' + regexPattern;
+  }
+  if (!regexPattern.endsWith('$')) {
+    regexPattern = regexPattern + '$';
+  }
+  
+  return regexPattern;
+}
+
+// Update header matching type UI
+function updateHeaderMatchingTypeUI() {
+  const matchingType = document.getElementById('headerMatchingType').value;
+  const headerUrlLabel = document.getElementById('headerUrlLabel');
+  const headerUrlInput = document.getElementById('headerUrlPattern');
+  const headerUrlHelp = document.getElementById('headerUrlHelp');
+  const testSection = document.getElementById('headerUrlTestSection');
+  const toggleButton = document.getElementById('toggleHeaderUrlTest');
+  
+  // Clear any existing test results
+  clearRegexResult('headerUrlResult');
+  
+  switch (matchingType) {
+    case 'contains':
+      headerUrlLabel.textContent = 'URL Contains';
+      headerUrlInput.placeholder = 'e.g., api.example.com';
+      headerUrlHelp.innerHTML = 'Enter text that should be found anywhere in the URL. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+      
+    case 'equals':
+      headerUrlLabel.textContent = 'URL Equals';
+      headerUrlInput.placeholder = 'e.g., https://api.example.com/v1/users';
+      headerUrlHelp.innerHTML = 'Enter the exact URL that should be matched. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+      
+    case 'startsWith':
+      headerUrlLabel.textContent = 'URL Starts With';
+      headerUrlInput.placeholder = 'e.g., https://api.example.com/';
+      headerUrlHelp.innerHTML = 'Enter the beginning part of URLs that should be matched. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+      
+    case 'endsWith':
+      headerUrlLabel.textContent = 'URL Ends With';
+      headerUrlInput.placeholder = 'e.g., /api/v1/data.json';
+      headerUrlHelp.innerHTML = 'Enter the ending part of URLs that should be matched. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+      
+    case 'wildcard':
+      headerUrlLabel.textContent = 'URL Wildcard Pattern';
+      headerUrlInput.placeholder = 'e.g., https://api.*.com/* or https://*.example.com/api/*';
+      headerUrlHelp.innerHTML = 'Use asterisks (*) as wildcards to match URL parts. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+      
+    case 'regex':
+    default:
+      headerUrlLabel.textContent = 'URL Pattern';
+      headerUrlInput.placeholder = 'e.g., https://api\\.example\\.com/.*';
+      headerUrlHelp.innerHTML = 'Regex pattern to match URLs where headers should be modified. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.';
+      toggleButton.style.display = 'inline-flex';
+      break;
+  }
+  
+  // Hide test section when switching types
+  if (testSection) {
+    testSection.style.display = 'none';
+    const toggle = document.getElementById('toggleHeaderUrlTest');
+    const toggleText = toggle?.querySelector('.toggle-text');
+    if (toggle && toggleText) {
+      toggleText.textContent = 'Show Test';
+      toggle.classList.remove('expanded');
+    }
+  }
+}
+
+// Header regex testing functionality
+function testHeaderRegexPattern(sourceField, testField, resultField) {
+  const matchingType = document.getElementById('headerMatchingType')?.value || 'regex';
+  const sourcePattern = document.getElementById(sourceField).value.trim();
+  const testUrl = document.getElementById(testField).value.trim();
+  const resultElement = document.getElementById(resultField);
+  
+  // Clear previous results
+  resultElement.className = 'regex-result';
+  resultElement.innerHTML = '';
+  
+  if (!sourcePattern) {
+    resultElement.className = 'regex-result error';
+    resultElement.textContent = 'Please enter a pattern first';
+    return;
+  }
+  
+  if (!testUrl) {
+    resultElement.className = 'regex-result error';
+    resultElement.textContent = 'Please enter a test URL';
+    return;
+  }
+  
+  try {
+    // Substitute environment variables before testing
+    const substitutedPattern = substituteVariables(sourcePattern);
+    
+    // Show variable substitution info if variables were replaced
+    let infoHtml = '';
+    if (substitutedPattern !== sourcePattern) {
+      infoHtml = `<div class="variable-substitution-info">
+        <strong>Original pattern:</strong> <code>${escapeHtml(sourcePattern)}</code><br>
+        <strong>After variable substitution:</strong> <code>${escapeHtml(substitutedPattern)}</code>
+      </div>`;
+    }
+    
+    let isMatch = false;
+    let match = null;
+    
+    // Test based on matching type
+    switch (matchingType) {
+      case 'contains':
+        isMatch = testUrl.includes(substitutedPattern);
+        match = isMatch ? [testUrl] : null;
+        break;
+        
+      case 'equals':
+        isMatch = testUrl === substitutedPattern;
+        match = isMatch ? [testUrl] : null;
+        break;
+        
+      case 'startsWith':
+        isMatch = testUrl.startsWith(substitutedPattern);
+        if (isMatch) {
+          const remainingPath = testUrl.substring(substitutedPattern.length);
+          match = [testUrl, remainingPath];
+        }
+        break;
+        
+      case 'endsWith':
+        isMatch = testUrl.endsWith(substitutedPattern);
+        match = isMatch ? [testUrl] : null;
+        break;
+        
+      case 'wildcard':
+        const wildcardRegexPattern = convertWildcardToRegex(substitutedPattern);
+        const wildcardRegex = new RegExp(wildcardRegexPattern);
+        match = testUrl.match(wildcardRegex);
+        isMatch = !!match;
+        break;
+        
+      case 'regex':
+      default:
+        const regex = new RegExp(substitutedPattern);
+        match = testUrl.match(regex);
+        isMatch = !!match;
+        break;
+    }
+    
+    if (isMatch && match) {
+      resultElement.className = 'regex-result success';
+      let resultHtml = infoHtml + '✅ <strong>Pattern matches!</strong>';
+      
+      // Show capture groups for wildcard patterns  
+      if (match.length > 1 && matchingType === 'wildcard') {
+        resultHtml += '<div class="capture-groups"><strong>Captured Wildcards:</strong><br>';
+        for (let i = 1; i < match.length; i++) {
+          resultHtml += `<span class="capture-group">$${i}: ${escapeHtml(match[i] || '')}</span>`;
+        }
+        resultHtml += '</div>';
+      }
+      
+      // Show capture groups for regex patterns
+      if (match.length > 1 && matchingType === 'regex') {
+        resultHtml += '<div class="capture-groups"><strong>Captured Parts:</strong><br>';
+        for (let i = 1; i < match.length; i++) {
+          resultHtml += `<span class="capture-group">$${i}: ${escapeHtml(match[i] || '')}</span>`;
+        }
+        resultHtml += '</div>';
+      }
+      
+      resultElement.innerHTML = resultHtml;
+      
+    } else {
+      resultElement.className = 'regex-result no-match';
+      resultElement.innerHTML = infoHtml + '❌ <strong>No match found</strong><br><small>Your pattern doesn\'t match the test URL</small>';
+    }
+    
+  } catch (error) {
+    resultElement.className = 'regex-result error';
+    resultElement.innerHTML = `🚫 <strong>Invalid pattern</strong><br><small>${escapeHtml(error.message)}</small>`;
+  }
 }

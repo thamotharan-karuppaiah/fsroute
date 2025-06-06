@@ -75,9 +75,14 @@
         details = {
           summary: `${data.ruleName} • ${data.delayMs}ms`,
           expanded: `
-            <div class="notification-source">${truncateUrl(data.url, 45)}</div>
-            <div class="notification-rule">Rule: ${data.ruleName}</div>
-            <div class="notification-detail">⏱️ Delayed by ${data.delayMs}ms (${(data.delayMs / 1000).toFixed(1)}s)</div>
+            <div class="notification-source"><strong>🌐 Full URL:</strong><br><code style="font-size: 9px; word-break: break-all;">${data.url}</code></div>
+            <div class="notification-rule"><strong>📋 Rule:</strong> ${data.ruleName}</div>
+            <div class="notification-detail"><strong>⏱️ Delay Details:</strong><br>
+              • Delayed by ${data.delayMs}ms (${(data.delayMs / 1000).toFixed(1)} seconds)<br>
+              • Request will proceed after delay<br>
+              • Type: Artificial network slowdown simulation
+            </div>
+            <div class="notification-timestamp"><strong>🕒 Applied:</strong> ${new Date().toLocaleTimeString()}</div>
           `
         };
         break;
@@ -87,12 +92,29 @@
         bgColor = '#2196F3';
         icon = '📝';
         title = 'Headers Modified';
+        
+        // Try to extract more header details if available
+        let headerDetails = '';
+        if (data.headers && Array.isArray(data.headers)) {
+          headerDetails = data.headers.map(h => `• ${h.operation.toUpperCase()}: ${h.name}${h.value ? ` = "${h.value}"` : ''}`).join('<br>');
+        } else {
+          headerDetails = '• Headers modified for this request<br>• Check browser dev tools Network tab for details';
+        }
+        
         details = {
           summary: `${data.ruleName} • Headers updated`,
           expanded: `
-            <div class="notification-source">${truncateUrl(data.url, 45)}</div>
-            <div class="notification-rule">Rule: ${data.ruleName}</div>
-            <div class="notification-detail">📝 Headers updated for request</div>
+            <div class="notification-source"><strong>🌐 Full URL:</strong><br><code style="font-size: 9px; word-break: break-all;">${data.url}</code></div>
+            <div class="notification-rule"><strong>📋 Rule:</strong> ${data.ruleName}</div>
+            <div class="notification-detail"><strong>📝 Header Modifications:</strong><br>
+              ${headerDetails}
+            </div>
+            <div class="notification-technical"><strong>🔧 Technical Info:</strong><br>
+              • Target: ${data.target || 'Request'} headers<br>
+              • Method: declarativeNetRequest API<br>
+              • Scope: This request only
+            </div>
+            <div class="notification-timestamp"><strong>🕒 Applied:</strong> ${new Date().toLocaleTimeString()}</div>
           `
         };
         break;
@@ -103,12 +125,62 @@
         icon = '🔗';
         title = 'URL Rewritten';
         const hasRedirect = data.redirectUrl && data.redirectUrl !== data.url;
+        
+        // Enhanced URL rewrite details
+        let rewriteDetails = '';
+        if (hasRedirect) {
+          // Try to identify capture groups or transformations
+          const sourceUrl = data.url;
+          const targetUrl = data.redirectUrl;
+          
+          // Check if this looks like a pattern-based transformation
+          let transformationInfo = '';
+          if (data.captureGroups) {
+            transformationInfo = `<br><strong>🎯 Capture Groups:</strong><br>${data.captureGroups.map((group, i) => `• $${i + 1}: "${group}"`).join('<br>')}`;
+          } else {
+            // Try to infer transformation type
+            const sourceDomain = sourceUrl.match(/\/\/([^\/]+)/)?.[1] || 'unknown';
+            const targetDomain = targetUrl.match(/\/\/([^\/]+)/)?.[1] || 'unknown';
+            
+            if (sourceDomain !== targetDomain) {
+              transformationInfo = `<br><strong>🔄 Domain Change:</strong><br>• From: ${sourceDomain}<br>• To: ${targetDomain}`;
+            }
+            
+            const sourcePort = sourceUrl.match(/:(\d+)\//)?.[1];
+            const targetPort = targetUrl.match(/:(\d+)\//)?.[1];
+            if (sourcePort && targetPort && sourcePort !== targetPort) {
+              transformationInfo += `<br><strong>🔌 Port Change:</strong> ${sourcePort} → ${targetPort}`;
+            }
+          }
+          
+          rewriteDetails = `
+            <div class="notification-source"><strong>🌐 Original URL:</strong><br><code style="font-size: 9px; word-break: break-all;">${sourceUrl}</code></div>
+            <div class="notification-target"><strong>🎯 Redirected To:</strong><br><code style="font-size: 9px; word-break: break-all;">${targetUrl}</code></div>
+            <div class="notification-rule"><strong>📋 Rule:</strong> ${data.ruleName}</div>
+            <div class="notification-detail"><strong>🔄 Transformation Details:</strong>${transformationInfo}</div>
+            <div class="notification-technical"><strong>🔧 Technical Info:</strong><br>
+              • Type: URL Redirect (${data.method || 'declarativeNetRequest'})<br>
+              • Status: ${data.statusCode || 'Active'}<br>
+              • Scope: Navigation request
+            </div>
+          `;
+        } else {
+          rewriteDetails = `
+            <div class="notification-source"><strong>🌐 Matched URL:</strong><br><code style="font-size: 9px; word-break: break-all;">${data.url}</code></div>
+            <div class="notification-rule"><strong>📋 Rule:</strong> ${data.ruleName}</div>
+            <div class="notification-detail"><strong>✅ Pattern Matched:</strong><br>
+              • Rule pattern successfully matched this URL<br>
+              • No redirect configured (pattern-only rule)<br>
+              • Rule is active and monitoring
+            </div>
+          `;
+        }
+        
         details = {
           summary: `${data.ruleName} • ${hasRedirect ? 'Redirected' : 'Matched'}`,
           expanded: `
-            <div class="notification-source">${truncateUrl(data.url, 45)}</div>
-            <div class="notification-rule">Rule: ${data.ruleName}</div>
-            ${hasRedirect ? `<div class="notification-detail">🎯 ${truncateUrl(data.redirectUrl, 40)}</div>` : '<div class="notification-detail">🔗 Pattern matched</div>'}
+            ${rewriteDetails}
+            <div class="notification-timestamp"><strong>🕒 Applied:</strong> ${new Date().toLocaleTimeString()}</div>
           `
         };
         break;
@@ -132,7 +204,20 @@
     
     // Show notifications based on mode
     if (compactNotifications) {
+      // Preserve current expanded state if there are existing notifications
+      let preserveExpandedState = false;
+      if (activeNotifications.length > 1) {
+        const currentNotification = activeNotifications[currentNotificationIndex];
+        preserveExpandedState = currentNotification && currentNotification.expanded;
+      }
+      
       currentNotificationIndex = activeNotifications.length - 1; // Show latest
+      
+      // Apply preserved expanded state to the new notification
+      if (preserveExpandedState) {
+        activeNotifications[currentNotificationIndex].expanded = true;
+      }
+      
       showCompactNotifications(true); // true = new notification, animate
     } else {
       showStandardNotification(notificationData);
@@ -857,11 +942,12 @@
         </div>
         <div class="notification-content expanded-content" style="
           opacity: ${isExpanded ? '1' : '0'};
-          max-height: ${isExpanded ? '45px' : '0'};
+          max-height: ${isExpanded ? '150px' : '0'}; 
           font-size: 10px;
-          line-height: 1.2;
+          line-height: 1.3;
           padding-top: ${isExpanded ? '6px' : '0'};
-          overflow: hidden;
+          overflow-y: ${isExpanded ? 'auto' : 'hidden'};
+          overflow-x: hidden;
           transition: all 0.3s ease;
         ">
           ${notificationData.details.expanded}
@@ -870,7 +956,7 @@
       
       // Update container styles
       notificationDiv.style.background = notificationData.bgColor;
-      notificationDiv.style.height = isExpanded ? '65px' : '32px';
+      notificationDiv.style.height = isExpanded ? '180px' : '32px';
       notificationDiv.setAttribute('data-expanded', isExpanded);
       notificationDiv.className = `freshroute-notification ${isExpanded ? '' : 'collapsed'}`;
       
@@ -885,7 +971,7 @@
           right: 20px;
           width: 380px;
           min-height: 32px;
-          height: ${isExpanded ? '65px' : '32px'};
+          height: ${isExpanded ? '180px' : '32px'};
           background: ${notificationData.bgColor};
           color: white;
           padding: 6px 12px;
@@ -961,11 +1047,12 @@
           </div>
           <div class="notification-content expanded-content" style="
             opacity: ${isExpanded ? '1' : '0'};
-            max-height: ${isExpanded ? '45px' : '0'};
+            max-height: ${isExpanded ? '150px' : '0'}; 
             font-size: 10px;
-            line-height: 1.2;
+            line-height: 1.3;
             padding-top: ${isExpanded ? '6px' : '0'};
-            overflow: hidden;
+            overflow-y: ${isExpanded ? 'auto' : 'hidden'};
+            overflow-x: hidden;
             transition: all 0.3s ease;
           ">
             ${notificationData.details.expanded}
@@ -1075,27 +1162,66 @@
         .notification-source {
           color: rgba(255,255,255,0.95);
           font-weight: 500;
-          margin-bottom: 1px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          margin-bottom: 2px;
           font-size: 10px;
+          line-height: 1.4;
+          white-space: pre-wrap;
+          word-break: break-word;
         }
         .notification-rule {
           color: rgba(255,255,255,0.85);
-          margin-bottom: 1px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          margin-bottom: 2px;
           font-size: 9px;
+          line-height: 1.4;
+          white-space: pre-wrap;
+          word-break: break-word;
         }
         .notification-detail {
           color: rgba(255,255,255,0.8);
           font-style: italic;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
           font-size: 9px;
+          line-height: 1.4;
+          margin-bottom: 2px;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .notification-target {
+          color: rgba(255,255,255,0.95);
+          font-weight: 500;
+          margin-bottom: 2px;
+          font-size: 9px;
+          line-height: 1.4;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .notification-technical {
+          color: rgba(255,255,255,0.75);
+          font-size: 8px;
+          margin-top: 2px;
+          line-height: 1.4;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .notification-timestamp {
+          color: rgba(255,255,255,0.6);
+          font-size: 8px;
+          margin-top: 2px;
+          font-style: italic;
+        }
+        .notification-content.expanded-content {
+          overflow-y: auto;
+          scrollbar-width: thin;
+        }
+        .notification-content.expanded-content::-webkit-scrollbar {
+          width: 4px;
+        }
+        .notification-content.expanded-content::-webkit-scrollbar-track {
+          background: rgba(255,255,255,0.1);
+          border-radius: 2px;
+        }
+        .notification-content.expanded-content::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.3);
+          border-radius: 2px;
         }
       `;
       document.head.appendChild(style);
@@ -1191,7 +1317,8 @@
     if (closeButton) {
       closeButton.addEventListener('click', (e) => {
         e.stopPropagation();
-        removeCurrentCompactNotification();
+        // In compact mode, close ALL notifications with a single click
+        clearAllNotifications();
       });
     }
     

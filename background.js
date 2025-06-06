@@ -104,8 +104,42 @@ chrome.webRequest.onBeforeRedirect.addListener(async (details) => {
     try {
       // Substitute variables in the source URL pattern for matching
       const sourceUrlWithVariables = substituteVariables(rule.sourceUrl);
-      const regex = new RegExp(sourceUrlWithVariables);
-      if (regex.test(details.url)) {
+      
+      let isMatch = false;
+      const matchingType = rule.matchingType || 'regex';
+      
+      switch (matchingType) {
+        case 'contains':
+          isMatch = details.url.includes(sourceUrlWithVariables);
+          break;
+          
+        case 'equals':
+          isMatch = details.url === sourceUrlWithVariables;
+          break;
+          
+        case 'startsWith':
+          isMatch = details.url.startsWith(sourceUrlWithVariables);
+          break;
+          
+        case 'endsWith':
+          isMatch = details.url.endsWith(sourceUrlWithVariables);
+          break;
+          
+        case 'wildcard':
+          // Convert wildcard pattern to regex for matching
+          const wildcardRegexPattern = convertWildcardToRegex(sourceUrlWithVariables);
+          const wildcardRegex = new RegExp(wildcardRegexPattern);
+          isMatch = wildcardRegex.test(details.url);
+          break;
+          
+        case 'regex':
+        default:
+          const regex = new RegExp(sourceUrlWithVariables);
+          isMatch = regex.test(details.url);
+          break;
+      }
+      
+      if (isMatch) {
         const ruleKey = `${rule.type}-${rule.name}-${details.url}`;
         
         if (!appliedRules.has(ruleKey)) {
@@ -183,8 +217,14 @@ chrome.webRequest.onSendHeaders.addListener(async (details) => {
   // Check if this request matches any header rules
   for (const rule of headerRules) {
     try {
+      // Substitute environment variables
       const sourceUrlWithVariables = substituteVariables(rule.urlPattern);
-      const regex = new RegExp(sourceUrlWithVariables);
+      
+      // Convert matching type to regex pattern
+      const matchingType = rule.matchingType || 'regex';
+      const regexPattern = convertMatchingTypeToRegex(sourceUrlWithVariables, matchingType);
+      
+      const regex = new RegExp(regexPattern);
       if (regex.test(details.url)) {
         const ruleKey = `header-${rule.name}-${details.url}`;
         
@@ -359,8 +399,11 @@ async function updateDeclarativeRules() {
         const uniqueId = ruleId++;
         usedIds.add(uniqueId);
         
+        // Convert matching type to regex pattern
+        const regexPattern = convertMatchingTypeToRegex(rule.sourceUrl, rule.matchingType || 'regex');
+        
         // Normalize and validate the regex pattern
-        const normalizedPattern = normalizeRegexPattern(rule.sourceUrl);
+        const normalizedPattern = normalizeRegexPattern(regexPattern);
         
         // Validate the regex before creating the rule
         try {
@@ -385,7 +428,7 @@ async function updateDeclarativeRules() {
             action: {
               type: 'redirect',
               redirect: {
-                regexSubstitution: rule.targetUrl.replace(/\$(\d+)/g, '\\$1')
+                regexSubstitution: convertTargetUrlForMatchingType(rule.targetUrl, rule.matchingType || 'regex')
               }
             },
             condition: {
@@ -409,7 +452,7 @@ async function updateDeclarativeRules() {
           
         } else {
           // Normal redirect rule
-          const regexSubstitution = rule.targetUrl.replace(/\$(\d+)/g, '\\$1');
+          const regexSubstitution = convertTargetUrlForMatchingType(rule.targetUrl, rule.matchingType || 'regex');
           
           const dnrRule = {
             id: uniqueId,
@@ -474,8 +517,12 @@ async function updateDeclarativeRules() {
           usedIds.add(uniqueId);
           
           try {
+            // Convert URL pattern based on matching type
+            const matchingType = rule.matchingType || 'regex';
+            const regexPattern = convertMatchingTypeToRegex(rule.urlPattern, matchingType);
+            
             // Validate URL pattern for declarativeNetRequest
-            const normalizedUrlPattern = normalizeRegexPattern(rule.urlPattern);
+            const normalizedUrlPattern = normalizeRegexPattern(regexPattern);
             new RegExp(normalizedUrlPattern); // Test regex validity
             
             const requestRule = {
@@ -507,8 +554,12 @@ async function updateDeclarativeRules() {
           usedIds.add(uniqueId);
           
           try {
+            // Convert URL pattern based on matching type
+            const matchingType = rule.matchingType || 'regex';
+            const regexPattern = convertMatchingTypeToRegex(rule.urlPattern, matchingType);
+            
             // Validate URL pattern for declarativeNetRequest
-            const normalizedUrlPattern = normalizeRegexPattern(rule.urlPattern);
+            const normalizedUrlPattern = normalizeRegexPattern(regexPattern);
             new RegExp(normalizedUrlPattern); // Test regex validity
             
             const responseRule = {
@@ -1031,4 +1082,82 @@ async function sendRuleActivityToDashboard(ruleData) {
   } catch (error) {
     console.error('Error sending rule activity to dashboard:', error);
   }
+}
+
+// Convert matching type to regex pattern
+function convertMatchingTypeToRegex(sourceUrl, matchingType) {
+  let regexPattern = sourceUrl;
+  
+  switch (matchingType) {
+    case 'contains':
+      // Escape regex special characters and wrap with .*
+      regexPattern = `.*${escapeRegexChars(sourceUrl)}.*`;
+      break;
+    case 'equals':
+      // Escape regex special characters and wrap with ^ and $
+      regexPattern = `^${escapeRegexChars(sourceUrl)}$`;
+      break;
+    case 'startsWith':
+      // Escape regex special characters and add .* at the end
+      regexPattern = `^${escapeRegexChars(sourceUrl)}.*`;
+      break;
+    case 'endsWith':
+      // Escape regex special characters and add .* at the beginning
+      regexPattern = `.*${escapeRegexChars(sourceUrl)}$`;
+      break;
+    case 'wildcard':
+      // Convert wildcard pattern to regex pattern with capture groups
+      regexPattern = convertWildcardToRegex(sourceUrl);
+      break;
+    case 'regex':
+    default:
+      // No change needed for regex matching
+      break;
+  }
+  
+  return regexPattern;
+}
+
+// Helper function to escape regex special characters
+function escapeRegexChars(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Convert target URL for matching type
+function convertTargetUrlForMatchingType(targetUrl, matchingType) {
+  switch (matchingType) {
+    case 'startsWith':
+      // For startsWith, append the captured remaining path (group 1)
+      return targetUrl + '\\1';
+    case 'contains':
+    case 'equals':
+    case 'endsWith':
+      // For these types, use the target URL as-is (no capture groups)
+      return targetUrl;
+    case 'wildcard':
+    case 'regex':
+      // For wildcard and regex, convert $1, $2 to \1, \2 for declarativeNetRequest
+      return targetUrl.replace(/\$(\d+)/g, '\\$1');
+    default:
+      return targetUrl.replace(/\$(\d+)/g, '\\$1');
+  }
+}
+
+// Convert wildcard pattern to regex pattern
+function convertWildcardToRegex(wildcardPattern) {
+  // Escape all regex special characters except asterisks
+  let regexPattern = wildcardPattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  
+  // Replace asterisks with capture groups
+  // Use ([^/]*) for URL path segments, or (.*) for broader matching
+  regexPattern = regexPattern.replace(/\*/g, '([^/]*)');
+  
+  // For wildcards that should match across path separators (like full paths),
+  // we might need broader matching. Let's detect if we're in a path context:
+  if (regexPattern.includes('/') && regexPattern.match(/\([^/]*\)/g)) {
+    // If we have path separators and capture groups, consider broader matching for end patterns
+    regexPattern = regexPattern.replace(/\/\([^/]*\)$/g, '/(.*)')
+  }
+  
+  return regexPattern;
 }

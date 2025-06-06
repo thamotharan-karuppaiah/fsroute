@@ -1765,9 +1765,22 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">Source URL Pattern</label>
+        <label class="form-label">Matching Type</label>
+        <select id="matchingType" class="form-select">
+          <option value="regex">Regular Expression (Advanced)</option>
+          <option value="contains">URL Contains Text</option>
+          <option value="equals">URL Equals Exactly</option>
+          <option value="startsWith">URL Starts With</option>
+          <option value="endsWith">URL Ends With</option>
+          <option value="wildcard">Wildcard Pattern (Simple)</option>
+        </select>
+        <div class="small-text">Choose how to match the source URL. Use "Contains" or "Equals" for simple cases, or "Regular Expression" for advanced patterns.</div>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label" id="sourceUrlLabel">Source URL Pattern</label>
         <input type="text" id="sourceUrl" class="form-input" placeholder="e.g., http://localhost.freshservice-dev.com:8080/(.*)">
-        <div class="small-text">Use regex patterns. Use (.*) or $1, $2 for capture groups. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.</div>
+        <div class="small-text" id="sourceUrlHelp">Use regex patterns. Use (.*) or $1, $2 for capture groups. Use {{VARIABLE_NAME}} for environment variables. Press Ctrl+Tab for variable suggestions.</div>
         
         <!-- Show Test Button -->
         <button type="button" class="btn-test-toggle" id="toggleSourceUrlTest">
@@ -1791,6 +1804,8 @@
               <button type="button" class="btn-example" data-target="sourceUrl" data-pattern="https?://([^.]+)\.example\.com/(.*)">Subdomain capture</button>
               <button type="button" class="btn-example" data-target="sourceUrl" data-pattern="https?://api\.([^.]+)\.com/v(\d+)/(.*)">API versioning</button>
               <button type="button" class="btn-example" data-target="sourceUrl" data-pattern="https?://([^/]+)/api/(.*)">Domain + API path</button>
+              <button type="button" class="btn-example" data-target="sourceUrl" data-pattern="http://localhost:*/api/*">Wildcard port + path</button>
+              <button type="button" class="btn-example" data-target="sourceUrl" data-pattern="https://*.example.com/*">Wildcard subdomain</button>
             </div>
           </div>
         </div>
@@ -1799,7 +1814,7 @@
       <div class="form-group">
         <label class="form-label">Target URL</label>
         <input type="text" id="targetUrl" class="form-input" placeholder="e.g., https://share-freshgladiators-m4008.freshgladiators.com/$1">
-        <div class="small-text">Use $1, $2, etc. to reference capture groups from source pattern. Use {{VARIABLE_NAME}} for environment variables.</div>
+        <div class="small-text" id="targetUrlHelp">Use $1, $2, etc. to reference capture groups from source pattern. Use {{VARIABLE_NAME}} for environment variables.</div>
         
         <!-- Target URL Examples -->
         <div class="regex-examples" id="targetUrlExamples" style="display: none;">
@@ -1809,6 +1824,8 @@
             <button type="button" class="btn-example" data-target="targetUrl" data-pattern="https://$1-prod.example.com/$2">Subdomain to prod</button>
             <button type="button" class="btn-example" data-target="targetUrl" data-pattern="https://api.prod.com/v$2/$3">API version mapping</button>
             <button type="button" class="btn-example" data-target="targetUrl" data-pattern="https://$1.myservice.com/api/$2">Domain transformation</button>
+            <button type="button" class="btn-example" data-target="targetUrl" data-pattern="https://prod.example.com:$1/api/$2">Wildcard mapping</button>
+            <button type="button" class="btn-example" data-target="targetUrl" data-pattern="https://$1.production.com/$2">Wildcard subdomain mapping</button>
           </div>
         </div>
         
@@ -1832,9 +1849,22 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">URL Pattern</label>
+        <label class="form-label">Matching Type</label>
+        <select id="headerMatchingType" class="form-select">
+          <option value="regex">Regular Expression (Advanced)</option>
+          <option value="contains">URL Contains Text</option>
+          <option value="equals">URL Equals Exactly</option>
+          <option value="startsWith">URL Starts With</option>
+          <option value="endsWith">URL Ends With</option>
+          <option value="wildcard">Wildcard Pattern (Simple)</option>
+        </select>
+        <div class="small-text">Choose how to match URLs where headers should be modified. Use "Contains" or "Equals" for simple cases, or "Regular Expression" for advanced patterns.</div>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label" id="headerUrlLabel">URL Pattern</label>
         <input type="text" id="headerUrlPattern" class="form-input" placeholder="e.g., https://api\\.example\\.com/.*">
-        <div class="small-text">Regex pattern to match URLs where headers should be modified. Use {{VARIABLE_NAME}} for environment variables.</div>
+        <div class="small-text" id="headerUrlHelp">Regex pattern to match URLs where headers should be modified. Use {{VARIABLE_NAME}} for environment variables.</div>
         
         <!-- Show Test Button -->
         <button type="button" class="btn-test-toggle" id="toggleHeaderUrlTest">

@@ -278,6 +278,7 @@ async function testUrl() {
         if (rule.type === 'url_rewrite') {
           let pattern = rule.sourceUrl;
           let targetUrl = rule.targetUrl;
+          const matchingType = rule.matchingType || 'regex';
           
           // Substitute environment variables
           Object.keys(substitutedVars).forEach(varName => {
@@ -287,21 +288,44 @@ async function testUrl() {
           });
           
           try {
-            const regex = new RegExp(pattern);
+            // Convert to regex based on matching type
+            const regexPattern = convertMatchingTypeToRegex(pattern, matchingType);
+            const regex = new RegExp(regexPattern);
+            
             if (regex.test(testUrl)) {
-              const newUrl = testUrl.replace(regex, targetUrl);
+              let newUrl;
+              
+              // Handle target URL generation based on matching type
+              if (matchingType === 'startsWith') {
+                // For startsWith, append the remaining path
+                const match = testUrl.match(regex);
+                if (match && match.length > 1) {
+                  newUrl = targetUrl + match[1];
+                } else {
+                  newUrl = targetUrl;
+                }
+              } else if (matchingType === 'wildcard' || matchingType === 'regex') {
+                // For wildcard and regex, use capture group replacement
+                newUrl = testUrl.replace(regex, targetUrl);
+              } else {
+                // For contains, equals, endsWith - use target URL as-is
+                newUrl = targetUrl;
+              }
+              
               matchedRules.push({
                 type: 'URL Redirect',
                 groupName: group.name,
                 ruleName: rule.name || `URL Rule ${ruleIndex + 1}`,
+                matchingType: getMatchingTypeDisplayName(matchingType),
                 pattern: pattern,
+                regexPattern: regexPattern,
                 action: `Redirect to: ${newUrl}`,
                 originalUrl: testUrl,
                 newUrl: newUrl
               });
             }
           } catch (error) {
-            console.error('Invalid regex pattern:', pattern, error);
+            console.error('Invalid pattern for rule:', rule.name, error);
           }
         }
         
@@ -352,7 +376,13 @@ async function testUrl() {
         resultHtml += `<strong>${index + 1}. ${rule.type}</strong><br>`;
         resultHtml += `Group: ${rule.groupName}<br>`;
         resultHtml += `Rule: ${rule.ruleName}<br>`;
+        if (rule.matchingType) {
+          resultHtml += `Type: ${rule.matchingType}<br>`;
+        }
         resultHtml += `Pattern: <code>${rule.pattern}</code><br>`;
+        if (rule.regexPattern && rule.regexPattern !== rule.pattern) {
+          resultHtml += `Regex: <code>${rule.regexPattern}</code><br>`;
+        }
         resultHtml += `Action: ${rule.action}<br>`;
         if (rule.newUrl) {
           resultHtml += `Result URL: <code>${rule.newUrl}</code><br>`;
@@ -454,6 +484,69 @@ window.FreshRouteDashboard = {
   clearLogs,
   addLogEntry
 };
+
+// Convert wildcard pattern to regex pattern
+function convertWildcardToRegex(wildcardPattern) {
+  // Escape all regex special characters except asterisks
+  let regexPattern = wildcardPattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  
+  // Replace asterisks with capture groups
+  // Use ([^/]*) for URL path segments, or (.*) for broader matching
+  regexPattern = regexPattern.replace(/\*/g, '([^/]*)');
+  
+  // For wildcards that should match across path separators (like full paths),
+  // we might need broader matching. Let's detect if we're in a path context:
+  if (regexPattern.includes('/') && regexPattern.match(/\([^/]*\)/g)) {
+    // If we have path separators and capture groups, consider broader matching for end patterns
+    regexPattern = regexPattern.replace(/\/\([^/]*\)$/g, '/(.*)')
+  }
+  
+  return regexPattern;
+}
+
+// Convert matching type to regex pattern for testing
+function convertMatchingTypeToRegex(sourceUrl, matchingType) {
+  switch (matchingType) {
+    case 'contains':
+      return `.*${escapeRegexChars(sourceUrl)}.*`;
+    case 'equals':
+      return `^${escapeRegexChars(sourceUrl)}$`;
+    case 'startsWith':
+      return `^${escapeRegexChars(sourceUrl)}.*`;
+    case 'endsWith':
+      return `.*${escapeRegexChars(sourceUrl)}$`;
+    case 'wildcard':
+      return convertWildcardToRegex(sourceUrl);
+    case 'regex':
+    default:
+      return sourceUrl;
+  }
+}
+
+// Helper function to escape regex special characters
+function escapeRegexChars(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Get display name for matching type
+function getMatchingTypeDisplayName(matchingType) {
+  switch (matchingType) {
+    case 'contains':
+      return 'Contains';
+    case 'equals':
+      return 'Equals';
+    case 'startsWith':
+      return 'Starts With';
+    case 'endsWith':
+      return 'Ends With';
+    case 'wildcard':
+      return 'Wildcard';
+    case 'regex':
+      return 'Regex';
+    default:
+      return 'Unknown';
+  }
+}
 
 // Analyze URL against all rules with detailed debugging
 function analyzeUrlAgainstRules(testUrl, showOnlyMatching = false) {
@@ -577,6 +670,7 @@ function analyzeRuleMatch(rule, testUrl, substitutedVars, groupEnabled) {
 function analyzeUrlRewriteRule(rule, testUrl, substitutedVars, result) {
   const originalPattern = rule.sourceUrl;
   const originalTarget = rule.targetUrl;
+  const matchingType = rule.matchingType || 'regex';
   
   // Step 2: Variable Substitution
   let substitutedPattern = originalPattern;
@@ -624,27 +718,72 @@ function analyzeUrlRewriteRule(rule, testUrl, substitutedVars, result) {
     });
   }
   
-  // Step 3: Regex Pattern Matching
+  // Step 3: Pattern Type and Conversion
+  result.steps.push({
+    type: 'info',
+    title: '🎯 Matching Type',
+    content: `Using ${getMatchingTypeDisplayName(matchingType)} matching type.`,
+    details: {
+      type: 'matching-type',
+      matchingType: matchingType,
+      originalPattern: substitutedPattern
+    }
+  });
+  
+  // Convert pattern to regex based on matching type
+  let regexPattern;
+  try {
+    regexPattern = convertMatchingTypeToRegex(substitutedPattern, matchingType);
+    
+    if (regexPattern !== substitutedPattern) {
+      result.steps.push({
+        type: 'info',
+        title: '🔄 Pattern Conversion',
+        content: `${getMatchingTypeDisplayName(matchingType)} pattern converted to regex.`,
+        details: {
+          type: 'pattern-conversion',
+          originalPattern: substitutedPattern,
+          regexPattern: regexPattern,
+          matchingType: matchingType
+        }
+      });
+    }
+  } catch (error) {
+    result.steps.push({
+      type: 'failure',
+      title: '❌ Pattern Conversion Error',
+      content: `Error converting ${matchingType} pattern: ${error.message}`,
+      details: {
+        type: 'error',
+        pattern: substitutedPattern,
+        error: error.message
+      }
+    });
+    result.error = `Pattern conversion error: ${error.message}`;
+    return result;
+  }
+  
+  // Step 4: Regex Compilation
   let regex;
   try {
-    regex = new RegExp(substitutedPattern);
+    regex = new RegExp(regexPattern);
     result.steps.push({
       type: 'success',
       title: '✅ Pattern Validation',
-      content: 'Regex pattern compiled successfully.',
+      content: 'Final regex pattern compiled successfully.',
       details: {
         type: 'pattern',
-        pattern: substitutedPattern
+        pattern: regexPattern
       }
     });
   } catch (error) {
     result.steps.push({
       type: 'failure',
       title: '❌ Invalid Pattern',
-      content: `Regex pattern is invalid: ${error.message}`,
+      content: `Final regex pattern is invalid: ${error.message}`,
       details: {
         type: 'error',
-        pattern: substitutedPattern,
+        pattern: regexPattern,
         error: error.message
       }
     });
@@ -652,7 +791,7 @@ function analyzeUrlRewriteRule(rule, testUrl, substitutedVars, result) {
     return result;
   }
   
-  // Step 4: URL Matching
+  // Step 5: URL Matching
   const match = testUrl.match(regex);
   if (match) {
     result.matches = true;
@@ -672,7 +811,7 @@ function analyzeUrlRewriteRule(rule, testUrl, substitutedVars, result) {
       details: matchDetails
     });
     
-    // Step 5: Target URL Generation
+    // Step 6: Target URL Generation
     try {
       let targetUrl = substitutedTarget;
       match.forEach((group, index) => {
@@ -906,6 +1045,11 @@ function analyzeMatchFailure(url, pattern) {
     reasons.push('Pattern is not anchored - consider adding ^ at start and $ at end');
   }
   
+  // Check for wildcard patterns that might not be converted properly
+  if (pattern.includes('*') && !pattern.includes('(.*') && !pattern.includes('([^/]*)')) {
+    reasons.push('Pattern contains unescaped asterisks - use wildcard matching type instead of regex');
+  }
+  
   if (reasons.length === 0) {
     reasons.push('Pattern structure does not match URL format');
   }
@@ -1024,6 +1168,12 @@ function renderDebugStep(step) {
         break;
       case 'pattern':
         detailsHtml = `<div class="step-content"><code>${escapeHtml(step.details.pattern)}</code></div>`;
+        break;
+      case 'matching-type':
+        detailsHtml = renderMatchingTypeDetails(step.details);
+        break;
+      case 'pattern-conversion':
+        detailsHtml = renderPatternConversionDetails(step.details);
         break;
     }
   }
@@ -1204,4 +1354,25 @@ function toggleRuleDebugCard(event) {
     content.classList.add('expanded');
     expandIcon.textContent = '▼';
   }
+}
+
+// Render matching type details
+function renderMatchingTypeDetails(details) {
+  let html = '<div class="matching-type-details">';
+  html += '<strong>Matching Type Details:</strong><br>';
+  html += `<code>Matching Type: ${escapeHtml(details.matchingType)}</code><br>`;
+  html += `<code>Original Pattern: ${escapeHtml(details.originalPattern)}</code><br>`;
+  html += '</div>';
+  return html;
+}
+
+// Render pattern conversion details
+function renderPatternConversionDetails(details) {
+  let html = '<div class="pattern-conversion-details">';
+  html += '<strong>Pattern Conversion Details:</strong><br>';
+  html += `<code>Original Pattern: ${escapeHtml(details.originalPattern)}</code><br>`;
+  html += `<code>Regex Pattern: ${escapeHtml(details.regexPattern)}</code><br>`;
+  html += `<code>Matching Type: ${escapeHtml(details.matchingType)}</code><br>`;
+  html += '</div>';
+  return html;
 } 
