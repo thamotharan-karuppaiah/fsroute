@@ -189,47 +189,88 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderGroups();
   renderEnvironmentVariables();
   loadSettings();
+  
+  // Setup session recording listeners after DOM is ready
+  setupSessionRecordingListeners();
+  
+  // Load sessions for sessions view
+  await loadSessions();
+  
+  // Handle hash navigation from popup
+  if (window.location.hash === '#sessions') {
+    document.getElementById('sessionsTab').click();
+  }
 });
 
-// Setup event listeners to replace inline event handlers
+// Setup all event listeners
 function setupEventListeners() {
-  // URL Rule buttons
-  document.getElementById('closeUrlModal').addEventListener('click', () => closeUrlRuleModal());
-  document.getElementById('saveUrlRuleBtn').addEventListener('click', () => saveUrlRule());
-  document.getElementById('cancelUrlRuleBtn').addEventListener('click', () => closeUrlRuleModal());
-
-  // Header Rule buttons
-  document.getElementById('closeHeaderModal').addEventListener('click', () => closeHeaderRuleModal());
-  document.getElementById('saveHeaderRuleBtn').addEventListener('click', () => saveHeaderRule());
-  document.getElementById('cancelHeaderRuleBtn').addEventListener('click', () => closeHeaderRuleModal());
-  document.getElementById('addHeaderFieldBtn').addEventListener('click', () => addHeaderField());
-
-  // Group buttons
+  setupSettingsListeners();
+  
+  // Import/Export functionality
+  document.getElementById('importBtn').addEventListener('click', () => {
+    document.getElementById('importFile').click();
+  });
+  
+  document.getElementById('importFile').addEventListener('change', importRules);
+  
+  // Preset groups
+  document.getElementById('addPresetGroupBtn').addEventListener('click', openPresetModal);
+  
+  // Add group
   document.getElementById('addGroupBtn').addEventListener('click', () => openGroupModal());
-  document.getElementById('closeGroupModal').addEventListener('click', () => closeGroupModal());
-  document.getElementById('saveGroupBtn').addEventListener('click', () => saveGroup());
-  document.getElementById('cancelGroupBtn').addEventListener('click', () => closeGroupModal());
-
-  // Preset buttons
-  document.getElementById('addPresetGroupBtn').addEventListener('click', () => openPresetModal());
-  document.getElementById('closePresetModal').addEventListener('click', () => closePresetModal());
-  document.getElementById('createPresetGroupBtn').addEventListener('click', () => createPresetGroup());
-  document.getElementById('cancelPresetBtn').addEventListener('click', () => closePresetModal());
-
-  // Environment Variable buttons
+  
+  // Environment variable management
   document.getElementById('addEnvironmentVariableBtn').addEventListener('click', () => openEnvironmentVariableModal());
-  document.getElementById('closeEnvironmentVariableModal').addEventListener('click', () => closeEnvironmentVariableModal());
-  document.getElementById('saveEnvironmentVariableBtn').addEventListener('click', () => saveEnvironmentVariable());
-  document.getElementById('cancelEnvironmentVariableBtn').addEventListener('click', () => closeEnvironmentVariableModal());
-
-  // Import button (unified)
-  document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
-  document.getElementById('importFile').addEventListener('change', (e) => importRules(e));
-
+  
+  // URL rule modal
+  document.getElementById('closeUrlModal').addEventListener('click', closeUrlRuleModal);
+  document.getElementById('cancelUrlRuleBtn').addEventListener('click', closeUrlRuleModal);
+  document.getElementById('saveUrlRuleBtn').addEventListener('click', saveUrlRule);
+  
+  // Header rule modal
+  document.getElementById('closeHeaderModal').addEventListener('click', closeHeaderRuleModal);
+  document.getElementById('cancelHeaderRuleBtn').addEventListener('click', closeHeaderRuleModal);
+  document.getElementById('saveHeaderRuleBtn').addEventListener('click', saveHeaderRule);
+  document.getElementById('addHeaderFieldBtn').addEventListener('click', addHeaderField);
+  
+  // Group modal
+  document.getElementById('closeGroupModal').addEventListener('click', closeGroupModal);
+  document.getElementById('cancelGroupBtn').addEventListener('click', closeGroupModal);
+  document.getElementById('saveGroupBtn').addEventListener('click', saveGroup);
+  
+  // Preset modal
+  document.getElementById('closePresetModal').addEventListener('click', closePresetModal);
+  document.getElementById('cancelPresetBtn').addEventListener('click', closePresetModal);
+  document.getElementById('createPresetGroupBtn').addEventListener('click', createPresetGroup);
+  document.getElementById('presetBackBtn').addEventListener('click', goBackToPresetSelection);
+  
+  // Environment variable modal
+  document.getElementById('closeEnvironmentVariableModal').addEventListener('click', closeEnvironmentVariableModal);
+  document.getElementById('cancelEnvironmentVariableBtn').addEventListener('click', closeEnvironmentVariableModal);
+  document.getElementById('saveEnvironmentVariableBtn').addEventListener('click', saveEnvironmentVariable);
+  
+  // Settings navigation
+  document.getElementById('backToRulesBtn').addEventListener('click', () => {
+    showRulesView();
+  });
+  
+  // Dashboard button
+  document.getElementById('dashboardBtn').addEventListener('click', () => {
+    chrome.tabs.create({ url: 'dashboard.html' });
+  });
+  
+  // Session Recorder button (safely check if exists)
+  const sessionRecorderBtn = document.getElementById('sessionRecorderBtn');
+  if (sessionRecorderBtn) {
+    sessionRecorderBtn.addEventListener('click', () => {
+      chrome.tabs.create({ url: 'session-recorder.html' });
+    });
+  }
+  
   // Regex testing buttons
   document.getElementById('testSourceUrlBtn').addEventListener('click', () => testRegexPattern('sourceUrl', 'sourceUrlTest', 'sourceUrlResult', 'targetUrl', 'targetUrlPreview'));
   document.getElementById('testHeaderUrlBtn').addEventListener('click', () => testRegexPattern('headerUrlPattern', 'headerUrlTest', 'headerUrlResult'));
-
+  
   // Test section toggle buttons
   document.getElementById('toggleSourceUrlTest').addEventListener('click', () => toggleTestSection('sourceUrlTestSection', 'toggleSourceUrlTest', 'targetUrlExamples'));
   document.getElementById('toggleHeaderUrlTest').addEventListener('click', () => toggleTestSection('headerUrlTestSection', 'toggleHeaderUrlTest'));
@@ -260,11 +301,7 @@ function setupEventListeners() {
     }
   });
 
-  // Close modals when clicking outside - REPLACED by setupModalCloseHandling()
-  // Old logic removed to prevent issues with text selection and drag operations
-  // The new logic in setupModalCloseHandling() properly handles these cases
-
-  // Improved modal close logic that handles text selection properly
+  // Improved modal close logic
   setupModalCloseHandling();
 
   // Keyboard shortcuts
@@ -288,33 +325,23 @@ function setupEventListeners() {
     });
   });
 
-  // Tab switching functionality
-  document.querySelectorAll('.tab-button').forEach(button => {
-    button.addEventListener('click', (e) => {
-      const targetTab = e.currentTarget.dataset.tab;
-      switchTab(targetTab);
-    });
-  });
-
-  // View switching functionality
+  // Tab navigation
   document.getElementById('rulesTab').addEventListener('click', () => {
-    showRulesView();
     updateTabNavigation('rules');
+    showRulesView();
+  });
+  
+  document.getElementById('sessionsTab').addEventListener('click', () => {
+    updateTabNavigation('sessions');
+    showSessionsView();
   });
   
   document.getElementById('settingsTab').addEventListener('click', () => {
-    showSettingsView();
     updateTabNavigation('settings');
+    showSettingsView();
   });
   
-  document.getElementById('backToRulesBtn').addEventListener('click', () => {
-    showRulesView();
-  });
-  
-  document.getElementById('dashboardBtn').addEventListener('click', () => {
-    // Open dashboard in new tab
-    chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
-  });
+  // Session recording listeners are now set up in DOMContentLoaded
 }
 
 // Setup settings listeners
@@ -2257,13 +2284,17 @@ function setupModalCloseHandling() {
 // Update tab navigation visual state
 function updateTabNavigation(activeTab) {
   const rulesTab = document.getElementById('rulesTab');
+  const sessionsTab = document.getElementById('sessionsTab');
   const settingsTab = document.getElementById('settingsTab');
   
   rulesTab.classList.remove('active');
+  sessionsTab.classList.remove('active');
   settingsTab.classList.remove('active');
   
   if (activeTab === 'rules') {
     rulesTab.classList.add('active');
+  } else if (activeTab === 'sessions') {
+    sessionsTab.classList.add('active');
   } else if (activeTab === 'settings') {
     settingsTab.classList.add('active');
   }
@@ -2278,7 +2309,889 @@ function showRulesView() {
 
 // Show settings view  
 function showSettingsView() {
-  document.getElementById('rulesView').classList.remove('active');
-  document.getElementById('settingsView').classList.add('active');
   updateTabNavigation('settings');
+  document.getElementById('settingsView').classList.add('active');
+  document.getElementById('rulesView').classList.remove('active');
+  document.getElementById('sessionsView').classList.remove('active');
+}
+
+// Tab navigation
+document.getElementById('rulesTab').addEventListener('click', () => {
+  updateTabNavigation('rules');
+  showRulesView();
+});
+
+document.getElementById('sessionsTab').addEventListener('click', () => {
+  updateTabNavigation('sessions');
+  showSessionsView();
+});
+
+document.getElementById('settingsTab').addEventListener('click', () => {
+  updateTabNavigation('settings');
+  showSettingsView();
+});
+
+// Session recording listeners
+setupSessionRecordingListeners();
+
+//
+// SESSION RECORDING FUNCTIONALITY
+//
+
+// Session recording state
+let isRecording = false;
+let currentSession = null;
+let recordingStartTime = null;
+let recordingInterval = null;
+let screenshotInterval = null;
+
+// Playback state
+let currentPlayback = null;
+let playbackInterval = null;
+let isPlaying = false;
+let playbackSpeed = 1;
+let currentEventIndex = 0;
+
+// Storage keys and constants
+const SESSIONS_KEY = 'freshroute_sessions';
+const MAX_SESSIONS = 50;
+const SCREENSHOT_INTERVAL = 5000; // 5 seconds
+const MAX_SCREENSHOTS_PER_SESSION = 100;
+
+// Setup session recording event listeners
+function setupSessionRecordingListeners() {
+  console.log('Setting up session recording listeners...');
+  
+  // Header recording controls (these may not exist, so check first)
+  const startRecordingBtn = document.getElementById('startRecordingHeaderBtn');
+  const stopRecordingBtn = document.getElementById('stopRecordingHeaderBtn');
+  
+  if (startRecordingBtn) {
+    startRecordingBtn.addEventListener('click', startSessionRecording);
+  }
+  
+  if (stopRecordingBtn) {
+    stopRecordingBtn.addEventListener('click', stopSessionRecording);
+  }
+  
+  // Sessions view controls (these may not exist, so check first)
+  const clearAllBtn = document.getElementById('clearAllSessionsBtn');
+  const exportAllBtn = document.getElementById('exportAllSessionsBtn');
+  
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener('click', clearAllSessions);
+  }
+  
+  if (exportAllBtn) {
+    exportAllBtn.addEventListener('click', exportAllSessions);
+  }
+  
+  // Replay modal controls - these are critical for playback
+  const closeReplayBtn = document.getElementById('closeSessionReplayBtn');
+  const playPauseBtn = document.getElementById('playPauseSessionBtn');
+  const speedSelect = document.getElementById('sessionPlaybackSpeed');
+  
+  if (closeReplayBtn) {
+    closeReplayBtn.addEventListener('click', closeSessionReplay);
+    console.log('✅ Close replay button listener added');
+  } else {
+    console.error('❌ Close replay button not found');
+  }
+  
+  if (playPauseBtn) {
+    playPauseBtn.addEventListener('click', toggleSessionPlayback);
+    console.log('✅ Play/pause button listener added');
+  } else {
+    console.error('❌ Play/pause button not found');
+  }
+  
+  if (speedSelect) {
+    speedSelect.addEventListener('change', updateSessionPlaybackSpeed);
+    console.log('✅ Speed control listener added');
+  } else {
+    console.error('❌ Speed control not found');
+  }
+  
+  // Timeline controls
+  const timeline = document.getElementById('sessionTimeline');
+  const timelineHandle = document.getElementById('sessionTimelineHandle');
+  
+  if (timeline) {
+    timeline.addEventListener('click', seekToSessionPosition);
+    console.log('✅ Timeline click listener added');
+  } else {
+    console.error('❌ Timeline element not found');
+  }
+  
+  if (timelineHandle) {
+    timelineHandle.addEventListener('mousedown', startSessionTimelineDrag);
+    console.log('✅ Timeline drag listener added');
+  } else {
+    console.error('❌ Timeline handle not found');
+  }
+  
+  // Close modal on outside click
+  const replayModal = document.getElementById('sessionReplayModal');
+  if (replayModal) {
+    replayModal.addEventListener('click', (e) => {
+      if (e.target === replayModal) {
+        closeSessionReplay();
+      }
+    });
+    console.log('✅ Modal outside click listener added');
+  }
+  
+  console.log('Session recording listeners setup complete');
+}
+
+// Start recording session
+async function startSessionRecording() {
+  if (isRecording) return;
+  
+  try {
+    // Get active tab
+    const tabs = await chrome.tabs.query({active: true, currentWindow: true});
+    if (!tabs[0]) {
+      throw new Error('No active tab found');
+    }
+    
+    // Initialize new session
+    currentSession = {
+      id: generateSessionId(),
+      startTime: Date.now(),
+      endTime: null,
+      events: [],
+      screenshots: [],
+      pages: [],
+      metadata: {
+        userAgent: navigator.userAgent,
+        initialUrl: tabs[0].url,
+        windowSize: {
+          width: window.screen.width,
+          height: window.screen.height
+        }
+      }
+    };
+    
+    // Start recording
+    isRecording = true;
+    recordingStartTime = Date.now();
+    
+    // Update UI
+    updateRecordingStatusUI('recording', 'Recording...');
+    
+    // Start screenshot capture
+    await captureSessionScreenshot();
+    screenshotInterval = setInterval(captureSessionScreenshot, SCREENSHOT_INTERVAL);
+    
+    // Start duration timer
+    recordingInterval = setInterval(updateSessionDurationUI, 1000);
+    
+    // Inject content script for event capture
+    await injectSessionCaptureScript(tabs[0].id);
+    
+    console.log('Session recording started:', currentSession.id);
+    
+  } catch (error) {
+    console.error('Failed to start recording:', error);
+    alert('Failed to start recording: ' + error.message);
+    resetSessionRecordingState();
+  }
+}
+
+// Stop recording session
+async function stopSessionRecording() {
+  if (!isRecording || !currentSession) return;
+  
+  try {
+    // Stop recording
+    isRecording = false;
+    currentSession.endTime = Date.now();
+    
+    // Clear intervals
+    if (screenshotInterval) {
+      clearInterval(screenshotInterval);
+      screenshotInterval = null;
+    }
+    
+    if (recordingInterval) {
+      clearInterval(recordingInterval);
+      recordingInterval = null;
+    }
+    
+    // Capture final screenshot
+    await captureSessionScreenshot();
+    
+    // Save session
+    await saveSession(currentSession);
+    
+    // Update UI
+    updateRecordingStatusUI('idle', 'Ready');
+    resetSessionStats();
+    
+    // Reload sessions list
+    await loadSessions();
+    
+    console.log('Session recording stopped:', currentSession.id);
+    currentSession = null;
+    
+  } catch (error) {
+    console.error('Failed to stop recording:', error);
+    alert('Failed to stop recording: ' + error.message);
+  }
+}
+
+// Capture screenshot
+async function captureSessionScreenshot() {
+  if (!isRecording || !currentSession) return;
+  
+  try {
+    const tabs = await chrome.tabs.query({active: true, currentWindow: true});
+    if (!tabs[0]) return;
+    
+    // Capture visible tab
+    const dataUrl = await chrome.tabs.captureVisibleTab(null, {
+      format: 'png',
+      quality: 80
+    });
+    
+    // Add screenshot to session
+    const screenshot = {
+      timestamp: Date.now() - recordingStartTime,
+      dataUrl: dataUrl,
+      url: tabs[0].url,
+      title: tabs[0].title
+    };
+    
+    currentSession.screenshots.push(screenshot);
+    
+    // Track unique pages
+    if (!currentSession.pages.find(page => page.url === tabs[0].url)) {
+      currentSession.pages.push({
+        url: tabs[0].url,
+        title: tabs[0].title,
+        firstVisit: screenshot.timestamp
+      });
+    }
+    
+    // Limit screenshots
+    if (currentSession.screenshots.length > MAX_SCREENSHOTS_PER_SESSION) {
+      currentSession.screenshots = currentSession.screenshots.slice(-MAX_SCREENSHOTS_PER_SESSION);
+    }
+    
+    updateSessionStats();
+    
+  } catch (error) {
+    console.error('Failed to capture screenshot:', error);
+  }
+}
+
+// Inject content script for event capture
+async function injectSessionCaptureScript(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      files: ['session-capture.js']
+    });
+    
+    console.log('Session capture script injected');
+    
+  } catch (error) {
+    console.error('Failed to inject session capture script:', error);
+    throw error;
+  }
+}
+
+// Update recording status UI
+function updateRecordingStatusUI(status, message) {
+  const statusElement = document.getElementById('recordingStatusHeader');
+  const statusText = statusElement.querySelector('.status-text');
+  const startBtn = document.getElementById('startRecordingHeaderBtn');
+  const stopBtn = document.getElementById('stopRecordingHeaderBtn');
+  
+  statusElement.className = `recording-status-indicator ${status}`;
+  statusText.textContent = message;
+  
+  if (status === 'recording') {
+    startBtn.style.display = 'none';
+    stopBtn.style.display = 'flex';
+    startBtn.classList.add('recording');
+  } else {
+    startBtn.style.display = 'flex';
+    stopBtn.style.display = 'none';
+    startBtn.classList.remove('recording');
+  }
+}
+
+// Update session duration UI
+function updateSessionDurationUI() {
+  if (!isRecording || !recordingStartTime) return;
+  
+  const duration = Date.now() - recordingStartTime;
+  const minutes = Math.floor(duration / 60000);
+  const seconds = Math.floor((duration % 60000) / 1000);
+  
+  document.getElementById('sessionDuration').textContent = 
+    `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+// Update session statistics
+function updateSessionStats() {
+  if (isRecording && currentSession) {
+    document.getElementById('sessionEvents').textContent = currentSession.events.length;
+    document.getElementById('sessionScreenshots').textContent = currentSession.screenshots.length;
+    document.getElementById('sessionPages').textContent = currentSession.pages.length;
+  }
+}
+
+// Reset session statistics
+function resetSessionStats() {
+  document.getElementById('sessionDuration').textContent = '0:00';
+  document.getElementById('sessionEvents').textContent = '0';
+  document.getElementById('sessionScreenshots').textContent = '0';
+  document.getElementById('sessionPages').textContent = '0';
+}
+
+// Reset recording state
+function resetSessionRecordingState() {
+  isRecording = false;
+  currentSession = null;
+  recordingStartTime = null;
+  
+  if (screenshotInterval) {
+    clearInterval(screenshotInterval);
+    screenshotInterval = null;
+  }
+  
+  if (recordingInterval) {
+    clearInterval(recordingInterval);
+    recordingInterval = null;
+  }
+  
+  updateRecordingStatusUI('idle', 'Ready');
+  resetSessionStats();
+}
+
+// Save session to storage
+async function saveSession(session) {
+  try {
+    const { [SESSIONS_KEY]: sessions = [] } = await chrome.storage.local.get([SESSIONS_KEY]);
+    
+    sessions.unshift(session);
+    
+    // Limit sessions
+    if (sessions.length > MAX_SESSIONS) {
+      sessions.splice(MAX_SESSIONS);
+    }
+    
+    await chrome.storage.local.set({ [SESSIONS_KEY]: sessions });
+    console.log('Session saved successfully');
+    
+  } catch (error) {
+    console.error('Failed to save session:', error);
+    throw error;
+  }
+}
+
+// Load sessions from storage
+async function loadSessions() {
+  try {
+    const { [SESSIONS_KEY]: sessions = [] } = await chrome.storage.local.get([SESSIONS_KEY]);
+    
+    const sessionsList = document.getElementById('sessionsList');
+    const emptyState = document.getElementById('sessionsEmptyState');
+    
+    if (sessions.length === 0) {
+      sessionsList.innerHTML = '';
+      emptyState.style.display = 'block';
+      return;
+    }
+    
+    emptyState.style.display = 'none';
+    sessionsList.innerHTML = sessions.map(session => renderSessionItem(session)).join('');
+    
+    // Add event listeners
+    sessions.forEach(session => {
+      const item = document.querySelector(`[data-session-id="${session.id}"]`);
+      if (item) {
+        item.querySelector('.btn-play-session').addEventListener('click', () => playSession(session));
+        item.querySelector('.btn-export-session').addEventListener('click', () => exportSession(session));
+        item.querySelector('.btn-delete-session').addEventListener('click', () => deleteSession(session.id));
+      }
+    });
+    
+  } catch (error) {
+    console.error('Failed to load sessions:', error);
+  }
+}
+
+// Render session item HTML
+function renderSessionItem(session) {
+  const duration = session.endTime ? session.endTime - session.startTime : 0;
+  const durationText = formatSessionDuration(duration);
+  const dateText = new Date(session.startTime).toLocaleString();
+  
+  return `
+    <div class="session-item" data-session-id="${session.id}">
+      <div class="session-info">
+        <div class="session-name">Session ${session.id.slice(-8)}</div>
+        <div class="session-meta">
+          <span>📊 ${session.events.length} events</span>
+          <span>📸 ${session.screenshots.length} screenshots</span>
+          <span>🌐 ${session.pages.length} pages</span>
+          <span>⏱️ ${durationText}</span>
+          <span>📅 ${dateText}</span>
+        </div>
+      </div>
+      <div class="session-item-actions">
+        <button class="btn-small btn-play btn-play-session">▶️ Play</button>
+        <button class="btn-small btn-export btn-export-session">📤 Export</button>
+        <button class="btn-small btn-delete btn-delete-session">🗑️ Delete</button>
+      </div>
+    </div>
+  `;
+}
+
+// Play session
+function playSession(session) {
+  console.log('🎬 Starting session playback:', session);
+  
+  // Validate session data
+  if (!session) {
+    console.error('❌ No session data provided for playback');
+    alert('Error: No session data available for playback');
+    return;
+  }
+  
+  if (!session.screenshots || session.screenshots.length === 0) {
+    console.warn('⚠️ Session has no screenshots available for playback');
+    alert('This session has no screenshots to replay. Recording may have failed.');
+    return;
+  }
+  
+  if (!session.events || session.events.length === 0) {
+    console.warn('⚠️ Session has no events available for playback');
+    alert('This session has no events to replay. Recording may have failed.');
+    return;
+  }
+  
+  currentPlayback = session;
+  currentEventIndex = 0;
+  isPlaying = false; // Start in paused state
+  
+  // Show replay modal
+  const modal = document.getElementById('sessionReplayModal');
+  if (!modal) {
+    console.error('❌ Session replay modal not found');
+    alert('Error: Session replay interface not available');
+    return;
+  }
+  
+  console.log('📺 Showing replay modal...');
+  modal.style.display = 'block';
+  
+  // Load first screenshot
+  if (session.screenshots.length > 0) {
+    const screenshotImg = document.getElementById('replayScreenshotImg');
+    if (screenshotImg) {
+      screenshotImg.src = session.screenshots[0].dataUrl;
+      console.log('🖼️ Loaded first screenshot');
+    } else {
+      console.error('❌ Screenshot image element not found');
+    }
+  }
+  
+  // Check for required elements and log their status
+  const playBtn = document.getElementById('playPauseSessionBtn');
+  const timeDisplay = document.getElementById('sessionReplayTime');
+  const closeBtn = document.getElementById('closeSessionReplayBtn');
+  const speedSelect = document.getElementById('sessionPlaybackSpeed');
+  
+  console.log('🔍 Checking UI elements:');
+  console.log('  - Play button:', playBtn ? '✅ Found' : '❌ Missing');
+  console.log('  - Time display:', timeDisplay ? '✅ Found' : '❌ Missing');
+  console.log('  - Close button:', closeBtn ? '✅ Found' : '❌ Missing');
+  console.log('  - Speed control:', speedSelect ? '✅ Found' : '❌ Missing');
+  
+  if (!playBtn) {
+    console.error('❌ Play button not found');
+    return;
+  }
+  
+  if (!timeDisplay) {
+    console.error('❌ Time display not found');
+    return;
+  }
+  
+  // Reset controls
+  playBtn.textContent = '▶️ Play';
+  
+  // Calculate duration
+  const duration = session.endTime - session.startTime;
+  timeDisplay.textContent = `0:00 / ${formatSessionDuration(duration)}`;
+  
+  // Reset timeline
+  updateSessionTimelineProgress(0);
+  
+  console.log(`✅ Session playback ready: ${session.events.length} events, ${session.screenshots.length} screenshots, ${formatSessionDuration(duration)} duration`);
+}
+
+// Toggle playback
+function toggleSessionPlayback() {
+  console.log('🎮 Toggle playback called. Current state:', isPlaying ? 'playing' : 'paused');
+  
+  if (!currentPlayback) {
+    console.error('❌ No current playback session');
+    return;
+  }
+  
+  if (isPlaying) {
+    console.log('⏸️ Pausing playback...');
+    pauseSessionPlayback();
+  } else {
+    console.log('▶️ Starting playback...');
+    startSessionPlayback();
+  }
+}
+
+// Start playback
+function startSessionPlayback() {
+  if (!currentPlayback || isPlaying) return;
+  
+  isPlaying = true;
+  document.getElementById('playPauseSessionBtn').textContent = '⏸️ Pause';
+  
+  playbackInterval = setInterval(() => {
+    updateSessionPlayback();
+  }, 100 / playbackSpeed);
+  
+  console.log('Session playback started');
+}
+
+// Pause playback
+function pauseSessionPlayback() {
+  isPlaying = false;
+  document.getElementById('playPauseSessionBtn').textContent = '▶️ Play';
+  
+  if (playbackInterval) {
+    clearInterval(playbackInterval);
+    playbackInterval = null;
+  }
+  
+  console.log('Session playback paused');
+}
+
+// Update playback
+function updateSessionPlayback() {
+  if (!currentPlayback || !isPlaying) return;
+  
+  const sessionDuration = currentPlayback.endTime - currentPlayback.startTime;
+  const currentTime = (currentEventIndex / currentPlayback.events.length) * sessionDuration;
+  
+  // Update timeline
+  const progress = (currentTime / sessionDuration) * 100;
+  updateSessionTimelineProgress(progress);
+  
+  // Update time display
+  document.getElementById('sessionReplayTime').textContent = 
+    `${formatSessionDuration(currentTime)} / ${formatSessionDuration(sessionDuration)}`;
+  
+  // Process events
+  if (currentEventIndex < currentPlayback.events.length) {
+    const event = currentPlayback.events[currentEventIndex];
+    processSessionPlaybackEvent(event);
+    currentEventIndex++;
+  } else {
+    // Playback finished
+    pauseSessionPlayback();
+    currentEventIndex = 0;
+  }
+}
+
+// Process playback event
+function processSessionPlaybackEvent(event) {
+  const cursor = document.getElementById('virtualCursorDiv');
+  const viewport = document.querySelector('.replay-viewport');
+  
+  switch (event.type) {
+    case 'mousemove':
+      cursor.style.left = `${event.x}px`;
+      cursor.style.top = `${event.y}px`;
+      break;
+      
+    case 'click':
+      showSessionClickAnimation(event.x, event.y);
+      break;
+      
+    case 'scroll':
+    case 'navigation':
+      updateSessionScreenshotForTimestamp(event.timestamp);
+      break;
+  }
+}
+
+// Show click animation
+function showSessionClickAnimation(x, y) {
+  const viewport = document.querySelector('.replay-viewport');
+  const animation = document.createElement('div');
+  
+  animation.className = 'click-animation';
+  animation.style.left = `${x - 20}px`;
+  animation.style.top = `${y - 20}px`;
+  
+  viewport.appendChild(animation);
+  
+  setTimeout(() => {
+    if (animation.parentNode) {
+      animation.parentNode.removeChild(animation);
+    }
+  }, 600);
+}
+
+// Update screenshot for timestamp
+function updateSessionScreenshotForTimestamp(timestamp) {
+  if (!currentPlayback) return;
+  
+  let closestScreenshot = currentPlayback.screenshots[0];
+  let minDiff = Math.abs(timestamp - closestScreenshot.timestamp);
+  
+  for (const screenshot of currentPlayback.screenshots) {
+    const diff = Math.abs(timestamp - screenshot.timestamp);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closestScreenshot = screenshot;
+    }
+  }
+  
+  const screenshotElement = document.getElementById('replayScreenshotImg');
+  if (screenshotElement.src !== closestScreenshot.dataUrl) {
+    screenshotElement.src = closestScreenshot.dataUrl;
+  }
+}
+
+// Update timeline progress
+function updateSessionTimelineProgress(percentage) {
+  const progress = document.getElementById('sessionTimelineProgress');
+  const handle = document.getElementById('sessionTimelineHandle');
+  
+  if (!progress) {
+    console.error('❌ Session timeline progress element not found');
+    return;
+  }
+  
+  if (!handle) {
+    console.error('❌ Session timeline handle element not found');
+    return;
+  }
+  
+  progress.style.width = `${percentage}%`;
+  handle.style.left = `${percentage}%`;
+}
+
+// Seek to timeline position
+function seekToSessionPosition(event) {
+  if (!currentPlayback) return;
+  
+  const timeline = event.currentTarget;
+  const rect = timeline.getBoundingClientRect();
+  const percentage = ((event.clientX - rect.left) / rect.width) * 100;
+  
+  currentEventIndex = Math.floor((percentage / 100) * currentPlayback.events.length);
+  updateSessionTimelineProgress(percentage);
+  
+  if (currentEventIndex < currentPlayback.events.length) {
+    const event = currentPlayback.events[currentEventIndex];
+    processSessionPlaybackEvent(event);
+  }
+}
+
+// Update playback speed
+function updateSessionPlaybackSpeed() {
+  const speedSelect = document.getElementById('sessionPlaybackSpeed');
+  playbackSpeed = parseFloat(speedSelect.value);
+  
+  if (isPlaying) {
+    clearInterval(playbackInterval);
+    playbackInterval = setInterval(() => {
+      updateSessionPlayback();
+    }, 100 / playbackSpeed);
+  }
+}
+
+// Close session replay
+function closeSessionReplay() {
+  console.log('🔴 Closing session replay...');
+  
+  // Stop playback
+  pauseSessionPlayback();
+  
+  // Clear states
+  currentPlayback = null;
+  currentEventIndex = 0;
+  isPlaying = false;
+  
+  // Clear intervals
+  if (playbackInterval) {
+    clearInterval(playbackInterval);
+    playbackInterval = null;
+  }
+  
+  // Hide modal
+  const modal = document.getElementById('sessionReplayModal');
+  if (modal) {
+    modal.style.display = 'none';
+    console.log('✅ Session replay modal closed');
+  } else {
+    console.error('❌ Session replay modal not found');
+  }
+}
+
+// Export session
+function exportSession(session) {
+  console.log('📤 Exporting session:', session.id);
+  
+  const dataStr = JSON.stringify(session, null, 2);
+  const dataBlob = new Blob([dataStr], { type: 'application/json' });
+  
+  const url = URL.createObjectURL(dataBlob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `freshroute-session-${session.id}.json`;
+  link.click();
+  
+  URL.revokeObjectURL(url);
+  console.log('✅ Session exported:', session.id);
+}
+
+// Export all sessions
+async function exportAllSessions() {
+  try {
+    const { [SESSIONS_KEY]: sessions = [] } = await chrome.storage.local.get([SESSIONS_KEY]);
+    
+    if (sessions.length === 0) {
+      alert('No sessions to export');
+      return;
+    }
+    
+    const exportData = {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      sessions: sessions
+    };
+    
+    const dataStr = JSON.stringify(exportData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `freshroute-all-sessions-${Date.now()}.json`;
+    link.click();
+    
+    URL.revokeObjectURL(url);
+    console.log(`Exported ${sessions.length} sessions`);
+    
+  } catch (error) {
+    console.error('Failed to export sessions:', error);
+    alert('Failed to export sessions: ' + error.message);
+  }
+}
+
+// Delete session
+async function deleteSession(sessionId) {
+  if (!confirm('Are you sure you want to delete this session?')) {
+    return;
+  }
+  
+  try {
+    const { [SESSIONS_KEY]: sessions = [] } = await chrome.storage.local.get([SESSIONS_KEY]);
+    
+    const updatedSessions = sessions.filter(session => session.id !== sessionId);
+    await chrome.storage.local.set({ [SESSIONS_KEY]: updatedSessions });
+    
+    await loadSessions();
+    console.log('Session deleted:', sessionId);
+    
+  } catch (error) {
+    console.error('Failed to delete session:', error);
+    alert('Failed to delete session: ' + error.message);
+  }
+}
+
+// Clear all sessions
+async function clearAllSessions() {
+  if (!confirm('Are you sure you want to delete ALL recorded sessions? This cannot be undone.')) {
+    return;
+  }
+  
+  try {
+    await chrome.storage.local.set({ [SESSIONS_KEY]: [] });
+    await loadSessions();
+    console.log('All sessions cleared');
+    
+  } catch (error) {
+    console.error('Failed to clear sessions:', error);
+    alert('Failed to clear sessions: ' + error.message);
+  }
+}
+
+// Show sessions view
+function showSessionsView() {
+  updateTabNavigation('sessions');
+  document.getElementById('sessionsView').classList.add('active');
+  document.getElementById('rulesView').classList.remove('active');
+  document.getElementById('settingsView').classList.remove('active');
+  
+  // Load sessions when view is shown
+  loadSessions();
+}
+
+// Timeline drag functionality
+let isDraggingSessionTimeline = false;
+
+function startSessionTimelineDrag(event) {
+  isDraggingSessionTimeline = true;
+  document.addEventListener('mousemove', handleSessionTimelineDrag);
+  document.addEventListener('mouseup', stopSessionTimelineDrag);
+  event.preventDefault();
+}
+
+function handleSessionTimelineDrag(event) {
+  if (!isDraggingSessionTimeline || !currentPlayback) return;
+  
+  const timeline = document.getElementById('sessionTimeline');
+  const rect = timeline.getBoundingClientRect();
+  const percentage = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+  
+  currentEventIndex = Math.floor((percentage / 100) * currentPlayback.events.length);
+  updateSessionTimelineProgress(percentage);
+  
+  if (currentEventIndex < currentPlayback.events.length) {
+    const event = currentPlayback.events[currentEventIndex];
+    processSessionPlaybackEvent(event);
+  }
+}
+
+function stopSessionTimelineDrag() {
+  isDraggingSessionTimeline = false;
+  document.removeEventListener('mousemove', handleSessionTimelineDrag);
+  document.removeEventListener('mouseup', stopSessionTimelineDrag);
+}
+
+// Utility functions
+function generateSessionId() {
+  return 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2);
+}
+
+function formatSessionDuration(milliseconds) {
+  const seconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
+// Stub function to prevent error since recording is now in popup
+function setupSessionRecordingListeners() {
+  console.log('Session recording is now handled in the popup.');
 }

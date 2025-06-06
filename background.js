@@ -4,6 +4,20 @@ let appliedRules = new Set(); // Track applied rules to prevent duplicate notifi
 let isUpdatingRules = false; // Prevent concurrent rule updates
 let environmentVariables = []; // Cache environment variables
 
+// Session recording state (persistent across popup opens/closes)
+let isRecording = false;
+let currentSession = null;
+let recordingStartTime = null;
+let screenshotInterval = null;
+let recordingTabId = null;
+
+// Session recording constants
+const SESSIONS_KEY = 'freshroute_sessions';
+const RECORDING_STATE_KEY = 'freshroute_recording_state';
+const MAX_SESSIONS = 50;
+const SCREENSHOT_INTERVAL = 5000; // 5 seconds
+const MAX_SCREENSHOTS_PER_SESSION = 100;
+
 // Initialize extension
 chrome.runtime.onInstalled.addListener(async () => {
   // Set default settings in sync storage (small data)
@@ -24,12 +38,16 @@ chrome.runtime.onInstalled.addListener(async () => {
   // Load environment variables
   await loadEnvironmentVariables();
   
+  // Initialize recording state
+  await initializeRecordingState();
+  
   console.log('FreshRoute installed');
 });
 
 // Also load environment variables on startup
 chrome.runtime.onStartup.addListener(async () => {
   await loadEnvironmentVariables();
+  await initializeRecordingState();
   console.log('FreshRoute started');
 });
 
@@ -684,7 +702,7 @@ async function notifyAllTabs(action, data) {
   try {
     const tabs = await chrome.tabs.query({});
     for (const tab of tabs) {
-      if (tab.url && (tab.url.startsWith('http') || tab.url.startsWith('https'))) {
+      if (tab && tab.id && tab.url && (tab.url.startsWith('http') || tab.url.startsWith('https'))) {
         chrome.tabs.sendMessage(tab.id, { action, ...data }).catch(() => {
           // Ignore errors for tabs that don't have content script
         });
@@ -695,33 +713,64 @@ async function notifyAllTabs(action, data) {
   }
 }
 
-// Handle messages from popup/options
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'updateRules') {
-    // Reload environment variables first, then update rules
-    loadEnvironmentVariables().then(() => {
-      return updateDeclarativeRules();
-    }).then(() => {
-      sendResponse({ success: true });
-    }).catch(error => {
-      console.error('❌ Error updating rules:', error);
-      sendResponse({ success: false, error: error.message });
-    });
-    return true; // Will respond asynchronously
-  } else if (request.action === 'getCurrentRules') {
-    // Get current active rules for debugging
-    chrome.declarativeNetRequest.getDynamicRules().then(rules => {
-      sendResponse({ rules });
-    });
-    return true;
-  } else if (request.action === 'debugHeaders') {
-    // Debug header rules
-    debugHeaderRules().then(result => {
-      sendResponse(result);
-    }).catch(error => {
-      sendResponse({ success: false, error: error.message });
-    });
-    return true;
+// Handle messages from popup and content scripts
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  try {
+    console.log('📨 Received message:', message.action || message.type, 'from sender:', sender);
+    
+    // Log sender details for debugging
+    if (sender && sender.tab) {
+      console.log('  Tab details:', { id: sender.tab.id, url: sender.tab.url, title: sender.tab.title });
+    } else if (sender) {
+      console.log('  No tab in sender:', sender);
+    } else {
+      console.log('  No sender provided');
+    }
+    
+    if (message.action === 'updateRules') {
+      updateDeclarativeRules().then(() => {
+        sendResponse({ success: true });
+      }).catch((error) => {
+        console.error('Failed to update rules:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+      return true; // Keep message channel open for async response
+    }
+    
+    // Session recording commands
+    if (message.action === 'startSessionRecording') {
+      console.log('🎬 Starting session recording...');
+      handleStartSessionRecording(sender, sendResponse);
+      return true; // Keep message channel open for async response
+    }
+    
+    if (message.action === 'stopSessionRecording') {
+      console.log('⏹️ Stopping session recording...');
+      handleStopSessionRecording(sender, sendResponse);
+      return true; // Keep message channel open for async response
+    }
+    
+    // Handle ping for context validation
+    if (message.type === 'ping') {
+      sendResponse({ success: true, timestamp: Date.now() });
+      return false; // Synchronous response
+    }
+    
+    // Handle session events from content scripts
+    if (message.type === 'sessionEvent' && isRecording && currentSession) {
+      console.log('📝 Handling session event:', message.event?.type);
+      handleSessionEvent(message.event, sender);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error handling message:', error, message);
+    if (sendResponse) {
+      try {
+        sendResponse({ success: false, error: 'Internal error processing message' });
+      } catch (responseError) {
+        console.error('❌ Failed to send error response:', responseError);
+      }
+    }
   }
 });
 
@@ -970,26 +1019,388 @@ function substituteVariables(text) {
 // Send rule activity to dashboard
 async function sendRuleActivityToDashboard(ruleData) {
   try {
-    // Find all dashboard tabs
-    const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL('dashboard.html') });
+    // Send activity data to dashboard if available
+    const dashboardMessage = {
+      type: 'ruleActivity',
+      data: ruleData
+    };
     
-    // Send message to all dashboard tabs
-    for (const tab of tabs) {
-      try {
-        await chrome.tabs.sendMessage(tab.id, {
-          type: 'ruleApplied',
-          rule: ruleData.rule,
-          originalUrl: ruleData.originalUrl,
-          newUrl: ruleData.newUrl,
-          responseTime: ruleData.responseTime || 0,
-          timestamp: Date.now()
+    // Try to send to all tabs to see if dashboard is open
+    const tabs = await chrome.tabs.query({});
+    tabs.forEach(tab => {
+      if (tab && tab.id && tab.url && tab.url.includes('dashboard.html')) {
+        chrome.tabs.sendMessage(tab.id, dashboardMessage).catch(() => {
+          // Ignore errors if dashboard script is not loaded
         });
-      } catch (error) {
-        // Tab might be closed or not ready, ignore error
-        console.log('Could not send to dashboard tab:', error.message);
       }
+    });
+  } catch (error) {
+    // Ignore errors for dashboard communication
+  }
+}
+
+// Initialize recording state
+async function initializeRecordingState() {
+  try {
+    const { [RECORDING_STATE_KEY]: recordingState } = await chrome.storage.local.get([RECORDING_STATE_KEY]);
+    
+    if (recordingState && recordingState.isRecording) {
+      isRecording = true;
+      currentSession = recordingState.session;
+      recordingStartTime = recordingState.startTime;
+      recordingTabId = recordingState.tabId;
+      
+      // Restart screenshot interval if we were recording
+      if (isRecording && currentSession) {
+        screenshotInterval = setInterval(captureSessionScreenshot, SCREENSHOT_INTERVAL);
+        console.log('📹 Resumed recording session:', currentSession.id);
+      }
+    } else {
+      isRecording = false;
+      currentSession = null;
+      recordingStartTime = null;
+      recordingTabId = null;
+      screenshotInterval = null;
     }
   } catch (error) {
-    console.error('Error sending rule activity to dashboard:', error);
+    console.error('❌ Error initializing recording state:', error);
+    isRecording = false;
+    currentSession = null;
+    recordingStartTime = null;
+    recordingTabId = null;
+    screenshotInterval = null;
   }
+}
+
+//
+// SESSION RECORDING FUNCTIONS
+//
+
+async function handleStartSessionRecording(sender, sendResponse) {
+  if (isRecording) {
+    sendResponse({ success: false, error: 'Recording already in progress' });
+    return;
+  }
+  
+  try {
+    // Get active tab
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tabs[0]) {
+      sendResponse({ success: false, error: 'No active tab found' });
+      return;
+    }
+    
+    recordingTabId = tabs[0].id;
+    
+    // Initialize new session
+    currentSession = {
+      id: generateSessionId(),
+      startTime: Date.now(),
+      endTime: null,
+      events: [],
+      screenshots: [],
+      pages: [],
+      metadata: {
+        userAgent: 'Chrome Extension',
+        initialUrl: tabs[0].url,
+        windowSize: {
+          width: 1920, // Default values since we can't access screen from background
+          height: 1080
+        }
+      }
+    };
+    
+    // Start recording
+    isRecording = true;
+    recordingStartTime = Date.now();
+    
+    // Save recording state
+    await saveRecordingState();
+    
+    // Start screenshot capture
+    await captureSessionScreenshot();
+    screenshotInterval = setInterval(captureSessionScreenshot, SCREENSHOT_INTERVAL);
+    
+    // Inject content script for event capture
+    await injectSessionCaptureScript(recordingTabId);
+    
+    // Notify popup about state change
+    notifyRecordingStateChange();
+    
+    console.log('📹 Session recording started:', currentSession.id);
+    
+    sendResponse({ 
+      success: true, 
+      startTime: recordingStartTime,
+      session: currentSession 
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to start recording:', error);
+    await resetRecordingState();
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+async function handleStopSessionRecording(sender, sendResponse) {
+  if (!isRecording || !currentSession) {
+    if (sendResponse) sendResponse({ success: false, error: 'No recording in progress' });
+    return;
+  }
+  
+  try {
+    // Stop recording
+    isRecording = false;
+    currentSession.endTime = Date.now();
+    
+    // Clear screenshot interval
+    if (screenshotInterval) {
+      clearInterval(screenshotInterval);
+      screenshotInterval = null;
+    }
+    
+    // Capture final screenshot (with error handling)
+    try {
+      await captureSessionScreenshot();
+    } catch (screenshotError) {
+      console.warn('⚠️ Failed to capture final screenshot, continuing with session save:', screenshotError.message);
+    }
+    
+    // Save session
+    await saveSession(currentSession);
+    
+    // Reset recording state
+    await resetRecordingState();
+    
+    // Notify popup about state change (safely)
+    try {
+      notifyRecordingStateChange();
+    } catch (notifyError) {
+      console.warn('⚠️ Failed to notify popup about recording state change:', notifyError.message);
+    }
+    
+    console.log('⏹️ Session recording stopped:', currentSession.id);
+    
+    if (sendResponse) sendResponse({ success: true });
+    
+  } catch (error) {
+    console.error('❌ Failed to stop recording:', error);
+    
+    // Even if there's an error, try to reset state to avoid stuck recording
+    try {
+      await resetRecordingState();
+    } catch (resetError) {
+      console.error('❌ Failed to reset recording state:', resetError);
+    }
+    
+    if (sendResponse) sendResponse({ success: false, error: error.message });
+  }
+}
+
+async function captureSessionScreenshot() {
+  if (!isRecording || !currentSession || !recordingTabId) return;
+  
+  try {
+    // Check if tab still exists before accessing it
+    let tab;
+    try {
+      tab = await chrome.tabs.get(recordingTabId);
+    } catch (tabError) {
+      console.warn('⚠️ Recording tab no longer exists, stopping recording:', tabError.message);
+      await handleStopSessionRecording(null, () => {}); // Stop recording gracefully
+      return;
+    }
+    
+    if (!tab || !tab.id) {
+      console.warn('⚠️ Invalid tab reference, stopping recording');
+      await handleStopSessionRecording(null, () => {});
+      return;
+    }
+    
+    // Capture visible tab
+    const dataUrl = await chrome.tabs.captureVisibleTab(null, {
+      format: 'png',
+      quality: 80
+    });
+    
+    // Add screenshot to session
+    const screenshot = {
+      timestamp: Date.now() - recordingStartTime,
+      dataUrl: dataUrl,
+      url: tab.url,
+      title: tab.title
+    };
+    
+    currentSession.screenshots.push(screenshot);
+    
+    // Track unique pages
+    if (!currentSession.pages.find(page => page.url === tab.url)) {
+      currentSession.pages.push({
+        url: tab.url,
+        title: tab.title,
+        firstVisit: screenshot.timestamp
+      });
+    }
+    
+    // Limit screenshots
+    if (currentSession.screenshots.length > MAX_SCREENSHOTS_PER_SESSION) {
+      currentSession.screenshots = currentSession.screenshots.slice(-MAX_SCREENSHOTS_PER_SESSION);
+    }
+    
+    // Update recording state
+    await saveRecordingState();
+    
+  } catch (error) {
+    console.error('❌ Failed to capture screenshot:', error);
+    
+    // If it's a context invalidation error, stop recording
+    if (error.message.includes('Extension context invalidated') || 
+        error.message.includes('Invalid tab')) {
+      console.warn('⚠️ Extension context invalidated during screenshot, stopping recording');
+      await resetRecordingState();
+    }
+  }
+}
+
+async function injectSessionCaptureScript(tabId) {
+  try {
+    // Validate tabId first
+    if (!tabId) {
+      throw new Error('Invalid tab ID provided for script injection');
+    }
+    
+    // Check if tab still exists
+    let tab;
+    try {
+      tab = await chrome.tabs.get(tabId);
+    } catch (tabError) {
+      throw new Error(`Tab ${tabId} no longer exists: ${tabError.message}`);
+    }
+    
+    if (!tab || !tab.id) {
+      throw new Error(`Invalid tab reference for ID ${tabId}`);
+    }
+    
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      files: ['session-capture.js']
+    });
+    
+    console.log('✅ Session capture script injected');
+    
+  } catch (error) {
+    console.error('❌ Failed to inject session capture script:', error);
+    throw error;
+  }
+}
+
+function handleSessionEvent(event, sender) {
+  if (!isRecording || !currentSession) return;
+  
+  try {
+    const sessionEvent = {
+      ...event,
+      timestamp: Date.now() - recordingStartTime,
+      tabId: sender?.tab?.id || null
+    };
+    
+    currentSession.events.push(sessionEvent);
+    
+    // Save state periodically (every 10 events to avoid too frequent writes)
+    if (currentSession.events.length % 10 === 0) {
+      saveRecordingState().catch(error => {
+        console.error('❌ Failed to save recording state during event handling:', error);
+      });
+    }
+  } catch (error) {
+    console.error('❌ Failed to handle session event:', error);
+    
+    // If it's a context invalidation error, stop recording
+    if (error.message.includes('Extension context invalidated')) {
+      console.warn('⚠️ Extension context invalidated during event handling, stopping recording');
+      resetRecordingState().catch(() => {});
+    }
+  }
+}
+
+async function saveRecordingState() {
+  try {
+    const recordingState = {
+      isRecording,
+      startTime: recordingStartTime,
+      session: currentSession,
+      tabId: recordingTabId
+    };
+    
+    await chrome.storage.local.set({ [RECORDING_STATE_KEY]: recordingState });
+  } catch (error) {
+    console.error('❌ Failed to save recording state:', error);
+  }
+}
+
+async function resetRecordingState() {
+  isRecording = false;
+  currentSession = null;
+  recordingStartTime = null;
+  recordingTabId = null;
+  
+  if (screenshotInterval) {
+    clearInterval(screenshotInterval);
+    screenshotInterval = null;
+  }
+  
+  try {
+    await chrome.storage.local.remove([RECORDING_STATE_KEY]);
+  } catch (error) {
+    console.error('❌ Failed to clear recording state:', error);
+  }
+}
+
+async function saveSession(session) {
+  try {
+    console.log('💾 Saving session:', {
+      id: session.id,
+      eventsCount: session.events?.length || 0,
+      screenshotsCount: session.screenshots?.length || 0,
+      duration: session.endTime - session.startTime,
+      startTime: session.startTime,
+      endTime: session.endTime
+    });
+    
+    const { [SESSIONS_KEY]: sessions = [] } = await chrome.storage.local.get([SESSIONS_KEY]);
+    
+    sessions.unshift(session);
+    
+    // Limit sessions
+    if (sessions.length > MAX_SESSIONS) {
+      sessions.splice(MAX_SESSIONS);
+    }
+    
+    await chrome.storage.local.set({ [SESSIONS_KEY]: sessions });
+    console.log('💾 Session saved successfully');
+    
+  } catch (error) {
+    console.error('❌ Failed to save session:', error);
+    throw error;
+  }
+}
+
+function notifyRecordingStateChange() {
+  const state = {
+    isRecording,
+    startTime: recordingStartTime,
+    session: currentSession
+  };
+  
+  // Notify all popup instances (if any are open)
+  chrome.runtime.sendMessage({
+    type: 'recordingStateUpdate',
+    state: state
+  }).catch(() => {
+    // Ignore errors if no popup is listening
+  });
+}
+
+function generateSessionId() {
+  return 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2);
 }
