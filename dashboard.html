@@ -104,75 +104,102 @@
       padding: 30px;
     }
     
-    .dashboard-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-      margin-bottom: 30px;
-    }
-    
-    .dashboard-card {
+    /* Monitoring Section - Compact */
+    .monitoring-section {
       background: white;
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
+      border-radius: 12px;
       padding: 20px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 30px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
     
-    .card-header {
+    .monitoring-section .section-header {
       display: flex;
+      justify-content: space-between;
       align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+    
+    .monitoring-controls {
+      display: flex;
       gap: 10px;
+      align-items: center;
       margin-bottom: 15px;
     }
     
-    .card-icon {
-      font-size: 20px;
-      width: 32px;
-      height: 32px;
-      border-radius: 6px;
+    .monitoring-section .log-container {
+      max-height: 200px;
+      font-size: 11px;
+    }
+    
+    /* Testing Section with Tabs */
+    .testing-section {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    
+    .testing-section .section-header {
+      padding: 20px 20px 0 20px;
+      margin-bottom: 0;
+      border-bottom: none;
+    }
+    
+    .testing-tabs {
       display: flex;
-      align-items: center;
-      justify-content: center;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e0e0e0;
     }
     
-    .card-icon.active {
-      background: #e8f5e8;
-      color: #2e7d32;
-    }
-    
-    .card-icon.monitoring {
-      background: #e3f2fd;
-      color: #1976d2;
-    }
-    
-    .card-icon.performance {
-      background: #fff3e0;
-      color: #f57c00;
-    }
-    
-    .card-icon.requests {
-      background: #f3e5f5;
-      color: #9c27b0;
-    }
-    
-    .card-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: #333;
-      margin: 0;
-    }
-    
-    .card-value {
-      font-size: 24px;
-      font-weight: 700;
-      margin: 10px 0 5px 0;
-    }
-    
-    .card-subtitle {
-      font-size: 12px;
+    .tab-btn {
+      background: none;
+      border: none;
+      padding: 15px 25px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
       color: #666;
+      border-bottom: 3px solid transparent;
+      transition: all 0.3s ease;
+      position: relative;
+    }
+    
+    .tab-btn:hover {
+      background: rgba(255, 107, 53, 0.1);
+      color: #FF6B35;
+    }
+    
+    .tab-btn.active {
+      background: white;
+      color: #FF6B35;
+      border-bottom-color: #FF6B35;
+      font-weight: 600;
+    }
+    
+    .tab-content {
+      display: none;
+      padding: 25px;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    .tab-description {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border-left: 4px solid #FF6B35;
+    }
+    
+    .tab-description p {
       margin: 0;
+      color: #666;
+      font-size: 14px;
     }
     
     .section {
@@ -383,16 +410,43 @@
     }
     
     @media (max-width: 768px) {
-      .dashboard-grid {
-        grid-template-columns: 1fr;
-      }
-      
       .url-input-group {
         flex-direction: column;
       }
       
-      .controls {
+      .monitoring-controls {
         flex-wrap: wrap;
+        gap: 8px;
+      }
+      
+      .monitoring-section .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      
+      .testing-tabs {
+        flex-direction: column;
+      }
+      
+      .tab-btn {
+        text-align: left;
+        border-bottom: none;
+        border-right: 3px solid transparent;
+      }
+      
+      .tab-btn.active {
+        border-bottom: none;
+        border-right-color: #FF6B35;
+      }
+      
+      .content {
+        padding: 15px;
+      }
+      
+      .monitoring-section,
+      .testing-section {
+        margin-bottom: 20px;
       }
     }
 
@@ -865,129 +919,95 @@
     </div>
     
     <div class="content">
-      <!-- Dashboard Stats -->
-      <div class="dashboard-grid">
-        <div class="dashboard-card">
-          <div class="card-header">
-            <div class="card-icon active">✓</div>
-            <h3 class="card-title">Active Rules</h3>
-          </div>
-          <div class="card-value" id="activeRulesCount">0</div>
-          <p class="card-subtitle">Currently enabled rules</p>
-        </div>
-        
-        <div class="dashboard-card">
-          <div class="card-header">
-            <div class="card-icon monitoring">📊</div>
-            <h3 class="card-title">Rules Fired</h3>
-          </div>
-          <div class="card-value" id="rulesFiredCount">0</div>
-          <p class="card-subtitle">In the last hour</p>
-        </div>
-        
-        <div class="dashboard-card">
-          <div class="card-header">
-            <div class="card-icon performance">⚡</div>
-            <h3 class="card-title">Avg Response Time</h3>
-          </div>
-          <div class="card-value" id="avgResponseTime">0ms</div>
-          <p class="card-subtitle">Rule processing time</p>
-        </div>
-        
-        <div class="dashboard-card">
-          <div class="card-header">
-            <div class="card-icon requests">🌐</div>
-            <h3 class="card-title">Requests Today</h3>
-          </div>
-          <div class="card-value" id="requestsToday">0</div>
-          <p class="card-subtitle">Total intercepted requests</p>
-        </div>
-      </div>
-      
-      <!-- Monitoring Controls -->
-      <div class="section">
+      <!-- Real-time Monitoring - Compact -->
+      <div class="monitoring-section">
         <div class="section-header">
-          <div class="section-title">Real-time Monitoring</div>
-        </div>
-        
-        <div class="controls">
-          <button class="btn btn-primary" id="startMonitoringBtn">Start Monitoring</button>
-          <button class="btn btn-secondary" id="pauseMonitoringBtn" disabled>Pause</button>
-          <button class="btn btn-danger" id="clearLogsBtn">Clear Logs</button>
+          <div class="section-title">📊 Real-time Monitoring</div>
           <div class="monitoring-status inactive" id="monitoringStatus">
             <div class="status-dot"></div>
             <span>Monitoring Stopped</span>
           </div>
         </div>
-      </div>
-      
-      <!-- Visual Rule Matching Debugger Section -->
-      <section class="dashboard-section">
-        <div class="section-header">
-          <h2>🔍 Visual Rule Matching Debugger</h2>
-          <p>Step-by-step analysis of how URLs match against your rules</p>
+        
+        <div class="monitoring-controls">
+          <button class="btn btn-primary" id="startMonitoringBtn">Start Monitoring</button>
+          <button class="btn btn-secondary" id="pauseMonitoringBtn" disabled>Pause</button>
+          <button class="btn btn-danger" id="clearLogsBtn">Clear Logs</button>
         </div>
         
-        <div class="debugger-container">
-          <div class="debugger-input">
-            <div class="form-group">
-              <label for="debugUrlInput" class="form-label">Test URL</label>
-              <input type="text" id="debugUrlInput" class="form-input" 
-                     placeholder="https://example.com/api/users"
-                     value="">
-            </div>
-            <div class="debugger-controls">
-              <button id="runDebuggerBtn" class="btn btn-primary">🔍 Debug Rules</button>
-              <button id="clearDebuggerBtn" class="btn btn-secondary">Clear</button>
-              <label class="checkbox-label">
-                <input type="checkbox" id="showOnlyMatchingRules"> 
-                Show only matching rules
-              </label>
-            </div>
-          </div>
-          
-          <div id="debuggerResults" class="debugger-results">
-            <div class="debugger-placeholder">
-              <div class="placeholder-icon">🎯</div>
-              <h3>Ready for Visual Debugging</h3>
-              <p>Enter a URL above and click "Debug Rules" to see step-by-step pattern matching</p>
-              <ul class="feature-list">
-                <li>🔍 Step-by-step rule evaluation</li>
-                <li>🎨 Visual regex pattern matching</li>
-                <li>🔄 Variable substitution tracking</li>
-                <li>📝 Capture group visualization</li>
-                <li>❌ Match failure explanations</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-      
-      <!-- URL Testing Section -->
-      <div class="section">
-        <div class="section-header">
-          <div class="section-title">Test URL Against Rules</div>
-        </div>
-        
-        <div class="test-url-section">
-          <div class="url-input-group">
-            <input type="text" class="url-input" id="testUrlInput" placeholder="Enter URL to test (e.g., http://localhost.freshservice-dev.com:3000/api/users)">
-            <button class="btn btn-primary" id="testUrlBtn">Test URL</button>
-          </div>
-          <div id="testResult"></div>
-        </div>
-      </div>
-      
-      <!-- Live Logs -->
-      <div class="section">
-        <div class="section-header">
-          <div class="section-title">Live Rule Activity</div>
-        </div>
-        
+        <!-- Live Logs - Compact -->
         <div class="log-container" id="liveLogContainer">
           <div class="log-entry">
             <span class="log-timestamp">[No activity yet]</span>
             <span class="log-url">Start monitoring to see live rule activity...</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Testing Tools Tabs -->
+      <div class="testing-section">
+        <div class="section-header">
+          <div class="section-title">🧪 Rule Testing Tools</div>
+        </div>
+        
+        <div class="testing-tabs">
+          <button class="tab-btn active" data-tab="quick-test">⚡ Quick Test</button>
+          <button class="tab-btn" data-tab="visual-debugger">🔍 Visual Debugger</button>
+        </div>
+        
+        <!-- Quick Test Tab -->
+        <div class="tab-content active" id="quick-test">
+          <div class="tab-description">
+            <p>Test a URL against all your rules to see which ones match and what actions would be taken.</p>
+          </div>
+          
+          <div class="test-url-section">
+            <div class="url-input-group">
+              <input type="text" class="url-input" id="testUrlInput" placeholder="Enter URL to test (e.g., http://localhost.freshservice-dev.com:3000/api/users)">
+              <button class="btn btn-primary" id="testUrlBtn">Test URL</button>
+            </div>
+            <div id="testResult"></div>
+          </div>
+        </div>
+        
+        <!-- Visual Debugger Tab -->
+        <div class="tab-content" id="visual-debugger">
+          <div class="tab-description">
+            <p>Step-by-step analysis of how URLs match against your rules with detailed pattern matching visualization.</p>
+          </div>
+          
+          <div class="debugger-container">
+            <div class="debugger-input">
+              <div class="form-group">
+                <label for="debugUrlInput" class="form-label">Test URL</label>
+                <input type="text" id="debugUrlInput" class="form-input" 
+                       placeholder="https://example.com/api/users"
+                       value="">
+              </div>
+              <div class="debugger-controls">
+                <button id="runDebuggerBtn" class="btn btn-primary">🔍 Debug Rules</button>
+                <button id="clearDebuggerBtn" class="btn btn-secondary">Clear</button>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="showOnlyMatchingRules"> 
+                  Show only matching rules
+                </label>
+              </div>
+            </div>
+            
+            <div id="debuggerResults" class="debugger-results">
+              <div class="debugger-placeholder">
+                <div class="placeholder-icon">🎯</div>
+                <h3>Ready for Visual Debugging</h3>
+                <p>Enter a URL above and click "Debug Rules" to see step-by-step pattern matching</p>
+                <ul class="feature-list">
+                  <li>🔍 Step-by-step rule evaluation</li>
+                  <li>🎨 Visual regex pattern matching</li>
+                  <li>🔄 Variable substitution tracking</li>
+                  <li>📝 Capture group visualization</li>
+                  <li>❌ Match failure explanations</li>
+                </ul>
+              </div>
+            </div>
           </div>
         </div>
       </div>

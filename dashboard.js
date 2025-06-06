@@ -6,13 +6,6 @@
 // Dashboard state
 let isMonitoring = false;
 let monitoringInterval = null;
-let stats = {
-  activeRules: 0,
-  rulesFired: 0,
-  avgResponseTime: 0,
-  requestsToday: 0,
-  responseTimes: []
-};
 
 // Rule data
 let groups = [];
@@ -102,7 +95,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   console.log('FreshRoute Dashboard initialized');
   await loadData();
   await loadDashboardLogs();
-  await updateStats(); // Update stats immediately to show current rule count
   setupEventListeners();
   updateMonitoringStatus();
   
@@ -156,6 +148,11 @@ function setupEventListeners() {
   document.getElementById('runDebuggerBtn').addEventListener('click', runVisualDebugger);
   document.getElementById('clearDebuggerBtn').addEventListener('click', clearDebugger);
   
+  // Tab switching
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+  
   // Enter key for URL testing
   document.getElementById('testUrlInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -171,15 +168,23 @@ function setupEventListeners() {
   });
 }
 
+// Switch between tabs
+function switchTab(tabId) {
+  // Remove active class from all tabs and content
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+  
+  // Add active class to selected tab and content
+  document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+  document.getElementById(tabId).classList.add('active');
+}
+
 // Start monitoring
 function startMonitoring() {
   if (isMonitoring) return;
   
   isMonitoring = true;
   updateMonitoringStatus();
-  
-  // Update stats periodically
-  monitoringInterval = setInterval(updateStats, 5000);
   
   addLogEntry('success', 'Monitoring started - Listening for rule activity...');
   
@@ -245,41 +250,6 @@ function updateMonitoringStatus() {
     statusElement.className = 'monitoring-status inactive';
     statusText.textContent = 'Monitoring Stopped';
   }
-}
-
-// Update dashboard statistics
-async function updateStats() {
-  // Count active rules
-  let activeRulesCount = 0;
-  groups.forEach(group => {
-    if (group.enabled !== false) { // Group is enabled by default
-      (group.rules || []).forEach(rule => {
-        if (rule.enabled) {
-          activeRulesCount++;
-        }
-      });
-    }
-  });
-  stats.activeRules = activeRulesCount;
-  
-  // Calculate average response time
-  if (stats.responseTimes.length > 0) {
-    stats.avgResponseTime = Math.round(
-      stats.responseTimes.reduce((sum, time) => sum + time, 0) / stats.responseTimes.length
-    );
-  }
-  
-  // Get today's request count from storage
-  const today = new Date().toDateString();
-  const { requestCounts } = await chrome.storage.local.get(['requestCounts']);
-  const todayCount = (requestCounts && requestCounts[today]) || 0;
-  stats.requestsToday = todayCount;
-  
-  // Update UI
-  document.getElementById('activeRulesCount').textContent = stats.activeRules;
-  document.getElementById('rulesFiredCount').textContent = stats.rulesFired;
-  document.getElementById('avgResponseTime').textContent = `${stats.avgResponseTime}ms`;
-  document.getElementById('requestsToday').textContent = stats.requestsToday;
 }
 
 // Test URL against rules
