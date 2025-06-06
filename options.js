@@ -297,12 +297,23 @@ function setupEventListeners() {
   });
 
   // View switching functionality
-  document.getElementById('settingsToggleBtn').addEventListener('click', () => {
+  document.getElementById('rulesTab').addEventListener('click', () => {
+    showRulesView();
+    updateTabNavigation('rules');
+  });
+  
+  document.getElementById('settingsTab').addEventListener('click', () => {
     showSettingsView();
+    updateTabNavigation('settings');
   });
   
   document.getElementById('backToRulesBtn').addEventListener('click', () => {
     showRulesView();
+  });
+  
+  document.getElementById('dashboardBtn').addEventListener('click', () => {
+    // Open dashboard in new tab
+    chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
   });
 }
 
@@ -2243,21 +2254,31 @@ function setupModalCloseHandling() {
   }
 }
 
-// View switching functions
-function showSettingsView() {
-  // Hide rules view and show settings view
-  document.getElementById('rulesView').classList.remove('active');
-  document.getElementById('settingsView').classList.add('active');
+// Update tab navigation visual state
+function updateTabNavigation(activeTab) {
+  const rulesTab = document.getElementById('rulesTab');
+  const settingsTab = document.getElementById('settingsTab');
   
-  // Update settings button state
-  document.getElementById('settingsToggleBtn').classList.add('active');
+  rulesTab.classList.remove('active');
+  settingsTab.classList.remove('active');
+  
+  if (activeTab === 'rules') {
+    rulesTab.classList.add('active');
+  } else if (activeTab === 'settings') {
+    settingsTab.classList.add('active');
+  }
 }
 
+// Show rules view
 function showRulesView() {
-  // Hide settings view and show rules view
-  document.getElementById('settingsView').classList.remove('active');
   document.getElementById('rulesView').classList.add('active');
-  
-  // Update settings button state
-  document.getElementById('settingsToggleBtn').classList.remove('active');
+  document.getElementById('settingsView').classList.remove('active');
+  updateTabNavigation('rules');
+}
+
+// Show settings view  
+function showSettingsView() {
+  document.getElementById('rulesView').classList.remove('active');
+  document.getElementById('settingsView').classList.add('active');
+  updateTabNavigation('settings');
 }

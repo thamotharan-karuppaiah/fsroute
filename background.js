@@ -133,6 +133,15 @@ chrome.webRequest.onBeforeRedirect.addListener(async (details) => {
             console.log('Could not send notification:', error);
           }
           
+          // Send rule activity to dashboard
+          await sendRuleActivityToDashboard({
+            rule: { ...rule, type: 'url' },
+            originalUrl: details.url,
+            newUrl: details.redirectUrl,
+            responseTime: details.responseTime || 0,
+            timestamp: Date.now()
+          });
+          
           break; // Only notify for the first matching rule
         }
       }
@@ -141,6 +150,89 @@ chrome.webRequest.onBeforeRedirect.addListener(async (details) => {
     }
   }
 }, { urls: ["<all_urls>"] });
+
+// Monitor header modifications
+chrome.webRequest.onSendHeaders.addListener(async (details) => {
+  if (details.tabId === -1) return; // Skip background requests
+  
+  // Get settings from sync storage and rules from local storage
+  const [syncData, localData] = await Promise.all([
+    chrome.storage.sync.get(['extensionEnabled', 'notificationsEnabled']),
+    chrome.storage.local.get(['rules', 'groups'])
+  ]);
+  
+  const { extensionEnabled, notificationsEnabled } = syncData;
+  const { rules, groups } = localData;
+  
+  if (!extensionEnabled) return;
+  
+  // Check if this request matches any header modification rules
+  let headerRules = [];
+  
+  // Use new grouped format if available
+  if (groups && groups.length > 0) {
+    groups.forEach(group => {
+      if (group.enabled !== false) { // Group is enabled
+        (group.rules || []).forEach(rule => {
+          if (rule.enabled && rule.type === 'modify_headers') { 
+            headerRules.push(rule);
+          }
+        });
+      }
+    });
+  }
+  
+  // Check if this request matches any header rules
+  for (const rule of headerRules) {
+    try {
+      const sourceUrlWithVariables = substituteVariables(rule.urlPattern);
+      const regex = new RegExp(sourceUrlWithVariables);
+      if (regex.test(details.url)) {
+        const ruleKey = `header-${rule.name}-${details.url}`;
+        
+        if (!appliedRules.has(ruleKey)) {
+          appliedRules.add(ruleKey);
+          
+          // Clear the rule from cache after 10 seconds
+          setTimeout(() => {
+            appliedRules.delete(ruleKey);
+          }, 10000);
+          
+          console.log(`✅ Header modification applied: ${details.url} (Rule: ${rule.name || 'Unnamed'})`);
+          
+          // Send notification to the tab if enabled
+          if (notificationsEnabled) {
+            try {
+              chrome.tabs.sendMessage(details.tabId, {
+                action: 'ruleApplied',
+                ruleName: rule.name || 'Header Rule',
+                ruleType: 'header_modification',
+                url: details.url
+              }).catch(() => {
+                // Ignore errors if content script is not loaded
+              });
+            } catch (error) {
+              console.log('Could not send notification:', error);
+            }
+          }
+          
+          // Send rule activity to dashboard
+          await sendRuleActivityToDashboard({
+            rule: { ...rule, type: 'header' },
+            originalUrl: details.url,
+            newUrl: details.url, // Headers don't change URL
+            responseTime: 0,
+            timestamp: Date.now()
+          });
+          
+          break; // Only notify for the first matching rule
+        }
+      }
+    } catch (e) {
+      // Invalid regex, skip
+    }
+  }
+}, { urls: ["<all_urls>"] }, ["requestHeaders"]);
 
 // Update declarative net request rules
 async function updateDeclarativeRules() {
@@ -873,4 +965,31 @@ function substituteVariables(text) {
   }
   
   return result;
+}
+
+// Send rule activity to dashboard
+async function sendRuleActivityToDashboard(ruleData) {
+  try {
+    // Find all dashboard tabs
+    const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL('dashboard.html') });
+    
+    // Send message to all dashboard tabs
+    for (const tab of tabs) {
+      try {
+        await chrome.tabs.sendMessage(tab.id, {
+          type: 'ruleApplied',
+          rule: ruleData.rule,
+          originalUrl: ruleData.originalUrl,
+          newUrl: ruleData.newUrl,
+          responseTime: ruleData.responseTime || 0,
+          timestamp: Date.now()
+        });
+      } catch (error) {
+        // Tab might be closed or not ready, ignore error
+        console.log('Could not send to dashboard tab:', error.message);
+      }
+    }
+  } catch (error) {
+    console.error('Error sending rule activity to dashboard:', error);
+  }
 }
