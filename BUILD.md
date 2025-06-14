@@ -21,6 +21,7 @@ Creates development build with:
 - ✅ **No minification** (readable code for debugging)
 - ✅ **Inline source maps** (for debugging in Chrome DevTools)
 - ✅ **Console.log preserved** (all debug statements kept)
+- ✅ **Icons copied as-is** (no optimization for faster builds)
 - ✅ **Development manifest** (distinguishable from production)
 
 ### Production Build (Optimized)
@@ -29,6 +30,7 @@ npm run build:prod
 ```
 Creates optimized production build with:
 - ✅ **Full minification** (52% JS reduction, 34.5% HTML reduction)
+- ✅ **Icon optimization** (88.8% reduction with PNG compression)
 - ✅ **Console removal** (all debug statements stripped)
 - ✅ **No source maps** (smaller bundle size)
 - ✅ **Production manifest** (ready for Chrome Web Store)
@@ -39,17 +41,26 @@ npm run build
 ```
 Alias for production build (maintains backward compatibility)
 
-### Development Watch Mode
+### Development Watch Mode (Recommended for Development)
 ```bash
-npm run watch:dev
+npm run watch        # Development mode with auto-rebuild
+npm run watch:dev    # Same as above (explicit)
 ```
-Watches for changes and rebuilds in development mode (no minification)
+Features:
+- ✅ **Auto-rebuild on changes** (JavaScript, HTML, Icons, Manifest)
+- ✅ **Development mode** (no minification, source maps included)
+- ✅ **Icon watching** (rebuilds when icons change)
+- ✅ **Fast builds** (no optimization overhead)
+- ✅ **Debounced** (500ms delay to prevent excessive rebuilds)
 
 ### Production Watch Mode
 ```bash
-npm run watch
+npm run watch:prod   # Production mode with auto-rebuild
 ```
-Watches for changes and rebuilds in production mode (minified)
+Features:
+- ✅ **Auto-rebuild on changes** with full optimization
+- ✅ **Production mode** (minified, optimized)
+- ✅ **Slower builds** (due to optimization)
 
 ### Pack for Distribution
 ```bash
@@ -112,7 +123,7 @@ Removes the `dist/` directory
 ## Chrome Extension Loading
 
 ### Development
-1. Run `npm run build`
+1. Run `npm run build:dev` or `npm run watch` for auto-rebuild
 2. Open Chrome → Extensions → Enable Developer Mode
 3. Click "Load unpacked" → Select the `dist/` folder
 
@@ -122,21 +133,10 @@ Removes the `dist/` directory
 
 ## File Organization
 
-- **Source files**: All JavaScript moved to `src/` directory
+- **Source files**: All source files organized under `src/` directory
 - **Build output**: Generated in `dist/` directory
-- **Static assets**: HTML, manifest, icons, rules copied as-is
+- **Static assets**: HTML, manifest, icons, rules processed and optimized
 - **Dependencies**: Managed via npm/package.json
-
-## Benefits of This Setup
-
-1. **Significant Size Reduction**: 47.2% overall reduction (339.7KB → 179.4KB)
-2. **Optimized Performance**: Faster loading with minified assets
-3. **Professional Workflow**: Industry-standard tooling and processes
-4. **Automated Builds**: Single command to build, optimize, and pack
-5. **Comprehensive Optimization**: Both JavaScript and HTML files optimized
-6. **Build Analytics**: Detailed statistics showing optimization results
-7. **Version Control Friendly**: Only source code tracked, not built artifacts
-8. **Chrome Store Ready**: Automated packaging for immediate upload
 
 ## Build Mode Comparison
 
@@ -166,4 +166,37 @@ Removes the `dist/` directory
 - **Development Bundle**: ~1,063KB (readable, debuggable)
 - **Production Bundle**: ~208KB (optimized, minified)
 - **Size Difference**: 80% smaller in production
-- **Final Zip**: 76.2KB (73% compression ratio) 
+- **Final Zip**: 76.2KB (73% compression ratio)
+
+## Benefits of This Setup
+
+1. **Significant Size Reduction**: 65.1% overall reduction (596.8KB → 208.3KB)
+2. **Optimized Performance**: Faster loading with minified assets
+3. **Professional Workflow**: Industry-standard tooling and processes
+4. **Automated Builds**: Single command to build, optimize, and pack
+5. **Comprehensive Optimization**: JavaScript, HTML, and Icon files optimized
+6. **Build Analytics**: Detailed statistics showing optimization results
+7. **Version Control Friendly**: Only source code tracked, not built artifacts
+8. **Chrome Store Ready**: Automated packaging for immediate upload
+9. **Development Friendly**: Watch mode with auto-rebuild and no optimization overhead
+10. **Asset Management**: Proper organization with src/ directory structure
+
+## Recommended Workflow
+
+### For Development:
+```bash
+npm run watch        # Start development watch mode
+# Edit files in src/ - auto-rebuilds with no minification
+# Load dist/ folder in Chrome Extensions
+```
+
+### For Testing:
+```bash
+npm run build:dev    # One-time development build
+npm run pack:dev     # Create development zip for testing
+```
+
+### For Production:
+```bash
+npm run pack         # Build, optimize, and create Chrome Web Store zip
+``` 

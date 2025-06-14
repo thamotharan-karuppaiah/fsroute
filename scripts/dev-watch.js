@@ -2,7 +2,10 @@ import { spawn } from 'child_process';
 import { watch } from 'fs';
 import path from 'path';
 
-console.log('🔧 Starting FreshRoute development watch mode...\n');
+const isDev = process.env.NODE_ENV === 'development';
+const mode = isDev ? 'development' : 'production';
+
+console.log(`🔧 Starting FreshRoute ${mode} watch mode...\n`);
 
 let buildProcess = null;
 let buildTimeout = null;
@@ -12,13 +15,13 @@ function runBuild() {
     buildProcess.kill();
   }
   
-  const isDev = process.env.NODE_ENV === 'development';
-  const buildCommand = isDev ? 'build:dev' : 'build';
+  const buildCommand = isDev ? 'build:dev' : 'build:prod';
   
-  console.log(`🔄 Building extension${isDev ? ' (development mode - no minification)' : ' (production mode)'}...`);
+  console.log(`🔄 Building extension (${mode} mode${isDev ? ' - no minification' : ' - minified'})...`);
   buildProcess = spawn('npm', ['run', buildCommand], { 
     stdio: 'inherit',
-    shell: true 
+    shell: true,
+    env: { ...process.env, NODE_ENV: mode }
   });
   
   buildProcess.on('close', (code) => {
@@ -42,10 +45,12 @@ function debouncedBuild() {
 // Watch source files
 const srcDir = path.resolve('src');
 const templatesDir = path.resolve('src/templates');
+const iconsDir = path.resolve('src/icons');
 
 console.log('👀 Watching for changes in:');
 console.log('   - src/ (JavaScript files)');
 console.log('   - src/templates/ (HTML files)');
+console.log('   - src/icons/ (Icon files)');
 console.log('   - manifest.json');
 console.log('   - rules.json\n');
 
@@ -61,6 +66,14 @@ watch(srcDir, { recursive: true }, (eventType, filename) => {
 watch(templatesDir, { recursive: true }, (eventType, filename) => {
   if (filename && filename.endsWith('.html')) {
     console.log(`🌐 Changed: src/templates/${filename}`);
+    debouncedBuild();
+  }
+});
+
+// Watch icon files
+watch(iconsDir, { recursive: true }, (eventType, filename) => {
+  if (filename && filename.endsWith('.png')) {
+    console.log(`🖼️  Changed: src/icons/${filename}`);
     debouncedBuild();
   }
 });

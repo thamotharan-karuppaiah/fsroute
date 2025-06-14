@@ -13,8 +13,9 @@
     "pack": "npm run build:prod && node scripts/pack.js && node scripts/build-summary.js",
     "pack:dev": "npm run build:dev && node scripts/pack.js",
     "clean": "rimraf dist",
-    "watch": "node scripts/dev-watch.js",
+    "watch": "NODE_ENV=development node scripts/dev-watch.js",
     "watch:dev": "NODE_ENV=development node scripts/dev-watch.js",
+    "watch:prod": "NODE_ENV=production node scripts/dev-watch.js",
     "process-html": "node scripts/process-html.js",
     "lint": "echo 'Linting not configured yet'",
     "test": "echo 'Tests not configured yet'"
