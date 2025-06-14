@@ -35,27 +35,33 @@ const PRESET_TEMPLATES = {
         label: 'Cookie Value',
         placeholder: 'session=abc123...',
         required: true,
-        type: 'text'
+        type: 'text',
+        hasCookieFetch: true
       },
       {
         key: 'csrfToken',
         label: 'X-CSRF-TOKEN',
         placeholder: 'csrf-token-value',
         required: false,
-        type: 'text'
+        type: 'text',
+        description: '⚠️ Important: If not filled, some API calls related to create/update operations like PATCH, POST, PUT may fail due to CSRF protection.'
       }
     ],
     generateRules: function(variables) {
       const rules = [];
       
+      // Clean up domain inputs to extract just hostname (and port)
+      const cleanSourceDomain = extractHostname(variables.sourceDomain);
+      const cleanTargetDomain = extractHostname(variables.targetDomain);
+      
       // URL Rewrite Rule for API calls (assuming common ports)
-      if (variables.sourceDomain && variables.targetDomain) {
+      if (cleanSourceDomain && cleanTargetDomain) {
         rules.push({
           id: 'freshservice-api-redirect',
           name: 'Freshservice Main API Redirect',
           type: 'url_rewrite',
-          sourceUrl: `^http://${escapeRegex(variables.sourceDomain)}:3000/(api|support/v1|support/v2|support/employee_offboarding|lookup_choices)(.*)`,
-          targetUrl: `https://${variables.targetDomain}/$1$2`,
+          sourceUrl: `^http://${escapeRegex(cleanSourceDomain)}:3000/(api|support/v1|support/v2|support/employee_offboarding|lookup_choices)(.*)`,
+          targetUrl: `https://${cleanTargetDomain}/$1$2`,
           enabled: true
         });
         
@@ -64,8 +70,8 @@ const PRESET_TEMPLATES = {
           id: 'freshservice-microservices-redirect', 
           name: 'Freshservice Microservices Redirect',
           type: 'url_rewrite',
-          sourceUrl: `^http://${escapeRegex(variables.sourceDomain)}:(8080|4000)/(.*)$`,
-          targetUrl: `https://${variables.targetDomain}/$2`,
+          sourceUrl: `^http://${escapeRegex(cleanSourceDomain)}:(8080|4000)/(.*)$`,
+          targetUrl: `https://${cleanTargetDomain}/$2`,
           enabled: true
         });
         
@@ -74,14 +80,14 @@ const PRESET_TEMPLATES = {
           id: 'freshservice-microservices-redirect-extendd', 
           name: 'Freshservice Microservices Redirect (Extend)',
           type: 'url_rewrite',
-          sourceUrl: `^http://${escapeRegex(variables.targetDomain)}:(8080|4000)/(.*)$`,
-          targetUrl: `https://${variables.targetDomain}/$2`,
+          sourceUrl: `^http://${escapeRegex(cleanTargetDomain)}:(8080|4000)/(.*)$`,
+          targetUrl: `https://${cleanTargetDomain}/$2`,
           enabled: true
         });
       }
       
       // Header modification rule for authentication
-      if (variables.targetDomain && (variables.cookieValue || variables.csrfToken)) {
+      if (cleanTargetDomain && (variables.cookieValue || variables.csrfToken)) {
         const headers = [];
         
         // Request headers (these work reliably)
@@ -130,7 +136,7 @@ const PRESET_TEMPLATES = {
             id: 'freshservice-headers',
             name: 'Freshservice Authentication Headers',
             type: 'modify_headers',
-            urlPattern: `^https://${escapeRegex(variables.targetDomain)}/.*`,
+            urlPattern: `^https://${escapeRegex(cleanTargetDomain)}/.*`,
             headers: headers,
             enabled: true
           });
@@ -179,6 +185,134 @@ const PRESET_TEMPLATES = {
 // Helper function to escape regex special characters
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Helper function to extract hostname (and port) from URL or domain string
+function extractHostname(urlOrDomain) {
+  if (!urlOrDomain) return '';
+  
+  let cleanDomain = urlOrDomain.trim();
+  
+  // If it starts with protocol, parse as URL
+  if (cleanDomain.startsWith('http://') || cleanDomain.startsWith('https://')) {
+    try {
+      const url = new URL(cleanDomain);
+      return url.host; // host includes port if present
+    } catch (e) {
+      // If URL parsing fails, fall back to manual extraction
+      cleanDomain = cleanDomain.replace(/^https?:\/\//, '');
+    }
+  }
+  
+  // Remove any path, query, or fragment
+  cleanDomain = cleanDomain.split('/')[0];
+  cleanDomain = cleanDomain.split('?')[0];
+  cleanDomain = cleanDomain.split('#')[0];
+  
+  return cleanDomain;
+}
+
+
+
+// Fetch cookies from target domain and fill input
+async function fetchAndFillCookies(inputKey, targetDomain, formContainer) {
+  let button = null;
+  let originalText = '🍪 Fetch Cookies';
+  
+  try {
+    // Find the input and its adjacent button
+    const inputElement = formContainer.querySelector(`[data-key="${inputKey}"]`);
+    if (!inputElement) {
+      throw new Error(`Input with key "${inputKey}" not found`);
+    }
+    
+    // Get the button (should be the next sibling in the input group)
+    button = inputElement.parentElement.querySelector('.fetch-cookies-btn');
+    if (!button) {
+      throw new Error('Fetch cookies button not found');
+    }
+    
+    // Show loading state
+    originalText = button.textContent;
+    button.textContent = '🔄 Fetching...';
+    button.disabled = true;
+    
+    // Clean up domain (remove protocol and paths)
+    let cleanDomain = targetDomain.replace(/^https?:\/\//, '').split('/')[0];
+    
+    // Get all cookies for the domain
+    const cookies = await chrome.cookies.getAll({
+      domain: cleanDomain
+    });
+    
+    // Also try with a leading dot for subdomain cookies
+    const subdomainCookies = await chrome.cookies.getAll({
+      domain: '.' + cleanDomain
+    });
+    
+    // Combine and deduplicate cookies
+    const allCookies = [...cookies, ...subdomainCookies];
+    const uniqueCookies = allCookies.filter((cookie, index, self) => 
+      index === self.findIndex(c => c.name === cookie.name && c.domain === cookie.domain)
+    );
+    
+    console.log(`🍪 Found ${uniqueCookies.length} cookies for domain: ${cleanDomain}`);
+    
+    if (uniqueCookies.length === 0) {
+      alert(`No cookies found for domain: ${cleanDomain}\n\nMake sure you have visited the target site recently and are logged in.`);
+      return;
+    }
+    
+    // Format cookies as Cookie header value
+    const cookieString = uniqueCookies
+      .map(cookie => `${cookie.name}=${cookie.value}`)
+      .join('; ');
+    
+    // Fill the input field
+    inputElement.value = cookieString;
+    
+    // Show success message
+    const cookieCount = uniqueCookies.length;
+    const cookieNames = uniqueCookies.map(c => c.name).join(', ');
+    
+    // Create a detailed info dialog
+    const message = `✅ Successfully fetched ${cookieCount} cookies from ${cleanDomain}:\n\n` +
+                   `Cookie names: ${cookieNames}\n\n` +
+                   `Total cookie string length: ${cookieString.length} characters\n\n` +
+                   `The cookies have been filled into the Cookie Value field.`;
+    
+    alert(message);
+    
+    console.log('🍪 Cookie details:', uniqueCookies.map(c => ({
+      name: c.name,
+      domain: c.domain,
+      path: c.path,
+      secure: c.secure,
+      httpOnly: c.httpOnly,
+      sameSite: c.sameSite
+    })));
+    
+  } catch (error) {
+    console.error('❌ Error fetching cookies:', error);
+    
+    let errorMessage = 'Failed to fetch cookies. ';
+    
+    if (error.message.includes('chrome.cookies')) {
+      errorMessage += 'The extension may not have cookie permissions. Please check the manifest.json file.';
+    } else if (error.message.includes('Invalid domain')) {
+      errorMessage += 'Please enter a valid domain name (e.g., example.com).';
+    } else {
+      errorMessage += `Error: ${error.message}`;
+    }
+    
+    alert(errorMessage);
+  } finally {
+    // Restore button state
+    if (button) {
+      button.textContent = originalText;
+      button.disabled = false;
+    }
+  }
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -586,7 +720,7 @@ function renderGroups() {
         <div class="group-header ${group.expanded === false ? 'collapsed' : ''}" data-group-index="${groupIndex}">
           <div class="group-left">
             <span class="group-expand ${group.expanded === false ? 'collapsed' : ''}" data-group-index="${groupIndex}">▼</span>
-            <span class="group-name">${escapeHtml(group.name)}</span>
+            <span class="group-name" title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
             <span class="group-count">${group.rules.length} rules (${enabledRules} enabled)</span>
             ${typeIndicator}
           </div>
@@ -1941,22 +2075,67 @@ function selectPreset(presetKey) {
   preset.variables.forEach(variable => {
     const formGroup = document.createElement('div');
     formGroup.className = 'form-group';
-    formGroup.innerHTML = `
+    
+    // Create the basic input structure
+    let inputHTML = `
       <label class="form-label">
         ${variable.label}
         ${variable.required ? '<span class="required">*</span>' : ''}
       </label>
-      <input 
-        type="${variable.type}" 
-        class="form-input preset-variable" 
-        data-key="${variable.key}"
-        placeholder="${variable.placeholder}"
-        value="${variable.defaultValue || ''}"
-        ${variable.required ? 'required' : ''}
-      >
-      <div class="small-text">${variable.description || ''}</div>
     `;
+    
+    // Add cookie fetch button if this is a cookie field
+    if (variable.hasCookieFetch) {
+      inputHTML += `
+        <div class="input-group">
+          <input 
+            type="${variable.type}" 
+            class="form-input preset-variable" 
+            data-key="${variable.key}"
+            placeholder="${variable.placeholder}"
+            value="${variable.defaultValue || ''}"
+            ${variable.required ? 'required' : ''}
+          >
+          <button type="button" class="btn btn-secondary fetch-cookies-btn" data-key="${variable.key}">
+            🍪 Fetch Cookies
+          </button>
+        </div>
+      `;
+    } else {
+      // Regular input without fetch button
+      inputHTML += `
+        <input 
+          type="${variable.type}" 
+          class="form-input preset-variable" 
+          data-key="${variable.key}"
+          placeholder="${variable.placeholder}"
+          value="${variable.defaultValue || ''}"
+          ${variable.required ? 'required' : ''}
+        >
+      `;
+    }
+    
+    inputHTML += `<div class="small-text">${variable.description || ''}</div>`;
+    
+    formGroup.innerHTML = inputHTML;
     configForm.appendChild(formGroup);
+  });
+  
+  // Add event listeners for cookie fetch buttons
+  configForm.querySelectorAll('.fetch-cookies-btn').forEach(button => {
+    button.addEventListener('click', async (e) => {
+      const key = e.target.dataset.key;
+      const targetDomainInput = configForm.querySelector('[data-key="targetDomain"]');
+      const targetDomain = targetDomainInput ? targetDomainInput.value.trim() : '';
+      
+      if (!targetDomain) {
+        alert('Please enter the target domain first to fetch cookies from that site.');
+        targetDomainInput?.focus();
+        return;
+      }
+      
+      await fetchAndFillCookies(key, targetDomain, configForm);
+    });
   });
   
   // Store selected preset
@@ -2010,10 +2189,22 @@ function createPresetGroup() {
   // Generate rules from preset
   const generatedRules = preset.generateRules(variables);
   
-  // Create new group
+  // Create new group with full domain names (ellipsis handled in UI)
+  const cleanSourceDomain = extractHostname(variables.sourceDomain);
+  const cleanTargetDomain = extractHostname(variables.targetDomain);
+  
+  let fullGroupName;
+  if (cleanSourceDomain && cleanTargetDomain) {
+    fullGroupName = `${preset.name} (${cleanSourceDomain} → ${cleanTargetDomain})`;
+  } else if (cleanSourceDomain) {
+    fullGroupName = `${preset.name} (${cleanSourceDomain})`;
+  } else {
+    fullGroupName = `${preset.name} Preset`;
+  }
+  
   const newGroup = {
     id: `preset-${selectedPresetKey}-${Date.now()}`,
-    name: `${preset.name} (${variables.sourceDomain || 'Preset'})`,
+    name: fullGroupName,
     expanded: true,
     enabled: true,
     isPreset: true,

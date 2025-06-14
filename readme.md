@@ -24,6 +24,12 @@ A powerful Chrome extension for URL rewriting and header modification, similar t
 - User-friendly interface with tabbed organization
 - Real-time rule validation
 
+### Cookie Access & Auto-Fill
+- **Automatic Cookie Fetching**: Extract cookies from any domain for header rules
+- **One-Click Cookie Population**: Automatically fill cookie values in preset configurations
+- **Smart Cookie Management**: Access both domain and subdomain cookies
+- **Freshservice Preset Integration**: Seamlessly fetch authentication cookies for development workflows
+
 ## Installation
 
 ### Method 1: Load as Unpacked Extension (Development)
@@ -93,6 +99,39 @@ A powerful Chrome extension for URL rewriting and header modification, similar t
 - **Headers**:
   - Name: `Authorization`, Operation: Set, Target: Request, Value: `Bearer your-token-here`
 
+### Cookie Auto-Fill Feature
+
+The extension can automatically fetch and fill cookies from any domain, making it easy to configure authentication headers for development environments.
+
+#### Using Cookie Auto-Fill in Freshservice Preset
+
+1. **Select Freshservice Preset**: Choose the Freshservice template when creating a new group
+2. **Enter Target Domain**: Fill in your target domain (e.g., `infinity-share.freshinfinitysquad.com`)
+3. **Auto-Fill Cookies**: Click the "🍪 Fetch Cookies" button next to the Cookie Value field
+4. **Automatic Population**: The extension will:
+   - Extract all cookies from the target domain
+   - Format them as a proper Cookie header value
+   - Display a summary of fetched cookies
+   - Fill the Cookie Value field automatically
+
+#### Manual Cookie Management
+
+You can also use cookie functionality in custom header rules:
+1. **Create Header Rule**: Add a new header modification rule
+2. **Set URL Pattern**: Define which URLs should receive the cookies
+3. **Add Cookie Header**: 
+   - Name: `Cookie`
+   - Operation: Set
+   - Target: Request
+   - Value: Use the fetch cookies feature or enter manually
+
+#### Cookie Security & Privacy
+
+- **Local Processing**: All cookie data is processed locally within the extension
+- **Domain-Specific**: Only cookies from the specified domain are accessed
+- **No External Transmission**: Cookie data never leaves your browser
+- **User Consent**: Cookie access only occurs when explicitly requested by the user
+
 ## Advanced Features
 
 ### Regex Patterns
@@ -133,6 +172,7 @@ The extension requires the following permissions:
 - `declarativeNetRequestWithHostAccess`: For accessing all websites
 - `storage`: For saving user rules and settings
 - `activeTab`: For current tab information
+- `cookies`: For accessing and reading cookies from websites (used in preset configurations)
 - `<all_urls>`: Host permission for all websites
 
 ## Troubleshooting
