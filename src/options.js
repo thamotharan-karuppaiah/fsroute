@@ -456,8 +456,8 @@ function setupEventListeners() {
   });
   
   document.getElementById('dashboardBtn').addEventListener('click', () => {
-    // Open dashboard in new tab
-    chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
+    // Open dashboard in same tab
+    window.location.href = chrome.runtime.getURL('dashboard.html');
   });
 }
 
