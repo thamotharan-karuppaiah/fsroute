@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cookie Test Page</title>
+</head>
+<body>
+    <h1>Cookie Test</h1>
+    <p>This page sets some test cookies to demonstrate the extension's cookie access functionality.</p>
+    
+    <script>
+        // Set some test cookies
+        document.cookie = "session_id=abc123def456; path=/";
+        document.cookie = "user_token=xyz789uvw012; path=/";
+        document.cookie = "csrf_token=token_value_here; path=/";
+        document.cookie = "auth_session=authenticated_session_data; path=/";
+        
+        console.log('Test cookies set:', document.cookie);
+        
+        // Display current cookies
+        document.write('<h2>Current Cookies:</h2>');
+        document.write('<p>' + document.cookie + '</p>');
+    </script>
+</body>
+</html> 

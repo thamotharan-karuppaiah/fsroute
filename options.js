@@ -6,6 +6,8 @@ let editingRuleIndex = null;
 let editingRuleType = null;
 let environmentVariables = [];
 let editingEnvironmentVariableIndex = null;
+let environments = [];
+let currentEnvironment = 'Default';
 
 // Preset group templates
 const PRESET_TEMPLATES = {
@@ -45,6 +47,12 @@ const PRESET_TEMPLATES = {
         required: false,
         type: 'text',
         description: '⚠️ Important: If not filled, some API calls related to create/update operations like PATCH, POST, PUT may fail due to CSRF protection.'
+  },
+  {
+    key: 'corsWarning',
+    label: 'CORS Information',
+    type: 'info',
+    description: '🔒 Chrome extensions cannot modify CORS response headers due to security restrictions. If you need CORS headers, configure them server-side or use the enhanced content script that helps with CORS requests.'
       }
     ],
     generateRules: function(variables) {
@@ -318,10 +326,12 @@ async function fetchAndFillCookies(inputKey, targetDomain, formContainer) {
 document.addEventListener('DOMContentLoaded', async () => {
   await loadGroupsAndRules();
   await loadEnvironmentVariables();
+  await loadEnvironments();
   setupEventListeners();
   setupSettingsListeners();
   renderGroups();
   renderEnvironmentVariables();
+  renderEnvironments();
   loadSettings();
 });
 
@@ -349,6 +359,9 @@ function setupEventListeners() {
   document.getElementById('closePresetModal').addEventListener('click', () => closePresetModal());
   document.getElementById('createPresetGroupBtn').addEventListener('click', () => createPresetGroup());
   document.getElementById('cancelPresetBtn').addEventListener('click', () => closePresetModal());
+
+  // Environment buttons
+  document.getElementById('addEnvironmentBtn').addEventListener('click', () => openEnvironmentModal());
 
   // Environment Variable buttons
   document.getElementById('addEnvironmentVariableBtn').addEventListener('click', () => openEnvironmentVariableModal());
@@ -2084,8 +2097,17 @@ function selectPreset(presetKey) {
       </label>
     `;
     
+    // Handle info fields (display only, no input)
+    if (variable.type === 'info') {
+      inputHTML += `
+        <div class="info-message cors-info">
+          <div class="info-icon">ℹ️</div>
+          <div class="info-text">${variable.description || ''}</div>
+        </div>
+      `;
+    }
     // Add cookie fetch button if this is a cookie field
-    if (variable.hasCookieFetch) {
+    else if (variable.hasCookieFetch) {
       inputHTML += `
         <div class="input-group">
           <input 
@@ -2925,5 +2947,211 @@ function testHeaderRegexPattern(sourceField, testField, resultField) {
   } catch (error) {
     resultElement.className = 'regex-result error';
     resultElement.innerHTML = `🚫 <strong>Invalid pattern</strong><br><small>${escapeHtml(error.message)}</small>`;
+  }
+}
+
+// Environment Management Functions
+
+// Load environments from storage
+async function loadEnvironments() {
+  try {
+    const [localData, syncData] = await Promise.all([
+      chrome.storage.local.get(['environments']),
+      chrome.storage.sync.get(['currentEnvironment'])
+    ]);
+    
+    environments = localData.environments || [];
+    currentEnvironment = syncData.currentEnvironment || 'Default';
+    
+    // Ensure default environment exists
+    if (environments.length === 0) {
+      environments = [
+        {
+          id: 'default',
+          name: 'Default',
+          description: 'Default environment with all rules enabled',
+          isDefault: true,
+          ruleStates: {}
+        }
+      ];
+      await chrome.storage.local.set({ environments });
+    }
+    
+    console.log('🌍 Loaded environments:', environments.length, 'Current:', currentEnvironment);
+  } catch (error) {
+    console.error('Error loading environments:', error);
+  }
+}
+
+// Save environments to storage
+async function saveEnvironments() {
+  try {
+    await chrome.storage.local.set({ environments });
+    console.log('💾 Environments saved to storage');
+  } catch (error) {
+    console.error('Error saving environments:', error);
+    alert('Error saving environments. Please try again.');
+  }
+}
+
+// Render environments list
+function renderEnvironments() {
+  const environmentsList = document.getElementById('environmentsList');
+  const currentEnvironmentName = document.getElementById('currentEnvironmentName');
+  const currentEnvironmentBadge = document.getElementById('currentEnvironmentBadge');
+  
+  if (!environmentsList) return;
+  
+  // Update current environment display
+  if (currentEnvironmentName) {
+    currentEnvironmentName.textContent = currentEnvironment;
+  }
+  if (currentEnvironmentBadge) {
+    currentEnvironmentBadge.textContent = currentEnvironment;
+  }
+  
+  if (environments.length === 0) {
+    environmentsList.innerHTML = '<div class="no-environments"><h3>🌍 No Environments</h3><p>Create different environments to manage rule configurations for Development, Staging, Production, etc.</p></div>';
+    return;
+  }
+  
+  environmentsList.innerHTML = '';
+  
+  environments.forEach((env, index) => {
+    const isActive = env.name === currentEnvironment;
+    const ruleCount = Object.keys(env.ruleStates || {}).length;
+    const enabledRuleCount = Object.values(env.ruleStates || {}).filter(enabled => enabled !== false).length;
+    
+    const environmentDiv = document.createElement('div');
+    environmentDiv.className = `environment-item ${isActive ? 'active' : ''}`;
+    environmentDiv.innerHTML = `<div class="environment-header"><div class="environment-info"><div class="environment-name">${escapeHtml(env.name)}</div><div class="environment-description">${escapeHtml(env.description || 'No description')}</div></div><div class="environment-actions">${!isActive ? `<button class="environment-switch-btn" data-env-index="${index}">Switch</button>` : '<button class="environment-switch-btn" disabled>Active</button>'}${!env.isDefault ? `<button class="environment-edit-btn" data-env-index="${index}">Edit</button>` : ''}${!env.isDefault ? `<button class="environment-delete-btn" data-env-index="${index}">Delete</button>` : ''}</div></div><div class="environment-stats"><div class="environment-stat"><span>Rules:</span><span class="environment-stat-value">${ruleCount}</span></div><div class="environment-stat"><span>Active:</span><span class="environment-stat-value">${enabledRuleCount}</span></div></div>`;
+    environmentsList.appendChild(environmentDiv);
+  });
+  
+  addEnvironmentListeners();
+}
+
+// Add event listeners for environment controls
+function addEnvironmentListeners() {
+  document.querySelectorAll('.environment-switch-btn').forEach(button => {
+    button.addEventListener('click', async (e) => {
+      const index = parseInt(e.target.dataset.envIndex);
+      if (index >= 0 && index < environments.length) {
+        await switchToEnvironment(environments[index].name);
+      }
+    });
+  });
+
+  document.querySelectorAll('.environment-edit-btn').forEach(button => {
+    button.addEventListener('click', (e) => {
+      const index = parseInt(e.target.dataset.envIndex);
+      editEnvironment(index);
+    });
+  });
+
+  document.querySelectorAll('.environment-delete-btn').forEach(button => {
+    button.addEventListener('click', (e) => {
+      const index = parseInt(e.target.dataset.envIndex);
+      deleteEnvironment(index);
+    });
+  });
+}
+
+// Switch to a different environment
+async function switchToEnvironment(environmentName) {
+  try {
+    console.log(`🔄 Switching to environment: ${environmentName}`);
+    currentEnvironment = environmentName;
+    await chrome.storage.sync.set({ currentEnvironment: environmentName });
+    
+    const response = await chrome.runtime.sendMessage({
+      action: 'switchEnvironment',
+      environmentName: environmentName
+    });
+    
+    if (response && response.success) {
+      console.log(`✅ Successfully switched to ${environmentName}`);
+      renderEnvironments();
+    } else {
+      console.error('❌ Failed to switch environment:', response?.error);
+      alert('Failed to switch environment. Please try again.');
+    }
+  } catch (error) {
+    console.error('❌ Error switching environment:', error);
+    alert('Error switching environment. Please try again.');
+  }
+}
+
+// Create a simple environment modal
+function openEnvironmentModal() {
+  const name = prompt('Enter environment name:');
+  if (name && name.trim()) {
+    const description = prompt('Enter environment description (optional):') || '';
+    createEnvironment(name.trim(), description.trim());
+  }
+}
+
+// Create a new environment
+async function createEnvironment(name, description) {
+  try {
+    if (environments.some(env => env.name === name)) {
+      alert('Environment with this name already exists.');
+      return;
+    }
+    
+    const newEnvironment = {
+      id: Date.now().toString(),
+      name: name,
+      description: description,
+      isDefault: false,
+      ruleStates: {}
+    };
+    
+    environments.push(newEnvironment);
+    await saveEnvironments();
+    renderEnvironments();
+    console.log('✅ Created new environment:', name);
+  } catch (error) {
+    console.error('❌ Error creating environment:', error);
+    alert('Error creating environment. Please try again.');
+  }
+}
+
+// Edit environment
+function editEnvironment(index) {
+  const env = environments[index];
+  if (!env || env.isDefault) return;
+  
+  const newName = prompt('Enter new environment name:', env.name);
+  if (newName && newName.trim() && newName !== env.name) {
+    if (environments.some(e => e.name === newName.trim())) {
+      alert('Environment with this name already exists.');
+      return;
+    }
+    env.name = newName.trim();
+  }
+  
+  const newDescription = prompt('Enter new environment description:', env.description || '');
+  if (newDescription !== null) {
+    env.description = newDescription.trim();
+  }
+  
+  saveEnvironments();
+  renderEnvironments();
+}
+
+// Delete environment
+async function deleteEnvironment(index) {
+  const env = environments[index];
+  if (!env || env.isDefault) return;
+  
+  if (confirm(`Are you sure you want to delete the "${env.name}" environment? This action cannot be undone.`)) {
+    environments.splice(index, 1);
+    if (currentEnvironment === env.name) {
+      await switchToEnvironment('Default');
+    }
+    await saveEnvironments();
+    renderEnvironments();
+    console.log('🗑️ Deleted environment:', env.name);
   }
 }

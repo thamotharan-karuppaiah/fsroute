@@ -3,34 +3,57 @@ let isExtensionEnabled = true;
 let appliedRules = new Set(); // Track applied rules to prevent duplicate notifications
 let isUpdatingRules = false; // Prevent concurrent rule updates
 let environmentVariables = []; // Cache environment variables
+let currentEnvironment = 'Default'; // Current active environment
 
 // Initialize extension
 chrome.runtime.onInstalled.addListener(async () => {
   // Set default settings in sync storage (small data)
   await chrome.storage.sync.set({
     extensionEnabled: true,
-    notificationsEnabled: true
+    notificationsEnabled: true,
+    currentEnvironment: 'Default'
   });
   
-  // Initialize empty rules and groups in local storage (large data)
-  const existing = await chrome.storage.local.get(['rules', 'groups']);
+  // Initialize empty rules, groups, and environments in local storage (large data)
+  const existing = await chrome.storage.local.get(['rules', 'groups', 'environments']);
+  const updates = {};
+  
   if (!existing.rules && !existing.groups) {
-    await chrome.storage.local.set({
-      rules: [],
-      groups: []
-    });
+    updates.rules = [];
+    updates.groups = [];
   }
   
-  // Load environment variables
-  await loadEnvironmentVariables();
+  if (!existing.environments) {
+    // Initialize with a default environment
+    updates.environments = [
+      {
+        id: 'default',
+        name: 'Default',
+        description: 'Default environment with all rules',
+        isDefault: true,
+        ruleStates: {} // Maps ruleId to enabled/disabled state
+      }
+    ];
+  }
   
-  console.log('FreshRoute installed');
+  if (Object.keys(updates).length > 0) {
+    await chrome.storage.local.set(updates);
+  }
+  
+  // Load environment variables and set current environment
+  await loadEnvironmentVariables();
+  const syncData = await chrome.storage.sync.get(['currentEnvironment']);
+  currentEnvironment = syncData.currentEnvironment || 'Default';
+  
+  console.log('FreshRoute installed with environment support');
 });
 
 // Also load environment variables on startup
 chrome.runtime.onStartup.addListener(async () => {
   await loadEnvironmentVariables();
-  console.log('FreshRoute started');
+  const syncData = await chrome.storage.sync.get(['currentEnvironment']);
+  currentEnvironment = syncData.currentEnvironment || 'Default';
+  console.log('FreshRoute started with environment:', currentEnvironment);
 });
 
 // Listen for storage changes to update rules
@@ -48,6 +71,15 @@ chrome.storage.onChanged.addListener(async (changes, namespace) => {
       });
     }
     
+    if (changes.currentEnvironment) {
+      // Environment switched - update current environment and rules
+      const oldEnv = currentEnvironment;
+      currentEnvironment = changes.currentEnvironment.newValue;
+      console.log(`🔄 Environment switched from ${oldEnv} to ${currentEnvironment}`);
+      await updateDeclarativeRules();
+      console.log('✅ Rules updated after environment switch');
+    }
+    
     if (changes.environmentVariables) {
       // Reload environment variables and update rules
       console.log('🔄 Environment variables changed, reloading and updating rules...');
@@ -58,7 +90,7 @@ chrome.storage.onChanged.addListener(async (changes, namespace) => {
   }
   
   if (namespace === 'local') {
-    if (changes.rules || changes.groups) {
+    if (changes.rules || changes.groups || changes.environments) {
       await updateDeclarativeRules();
       // Clear applied rules cache when rules change
       appliedRules.clear();
@@ -307,72 +339,38 @@ async function updateDeclarativeRules() {
     }
 
     // Get current settings
-    const [syncData, localData] = await Promise.all([
-      chrome.storage.sync.get(['extensionEnabled']),
-      chrome.storage.local.get(['rules', 'groups'])
-    ]);
-    
+    const syncData = await chrome.storage.sync.get(['extensionEnabled']);
     const { extensionEnabled } = syncData;
-    const { rules, groups } = localData;
     
     if (!extensionEnabled) {
       console.log('Extension disabled, no rules to add');
       return;
     }
 
-    let allRules = [];
+    // Get rules for current environment (this already filters enabled rules)
+    const allRules = await getRulesForCurrentEnvironment();
+    console.log(`📋 Found ${allRules.length} active rules for environment: ${currentEnvironment}`);
     
-    // Process groups and substitute variables at runtime
-    if (groups && groups.length > 0) {
-      // Extract rules from enabled groups and substitute variables
-      groups.forEach((group, groupIndex) => {
-        if (group.enabled !== false) { // Group is enabled
-          if (group.rules) {
-            group.rules.forEach((rule, ruleIndex) => {
-              if (rule.enabled) { // Individual rule is enabled
-                // Create a copy of the rule and substitute variables
-                const processedRule = { ...rule, _groupIndex: groupIndex, _ruleIndex: ruleIndex };
-                
-                if (rule.type === 'url_rewrite') {
-                  processedRule.sourceUrl = substituteVariables(rule.sourceUrl);
-                  processedRule.targetUrl = substituteVariables(rule.targetUrl);
-                } else if (rule.type === 'modify_headers') {
-                  processedRule.urlPattern = substituteVariables(rule.urlPattern);
-                  processedRule.headers = rule.headers.map(header => ({
-                    ...header,
-                    name: substituteVariables(header.name),
-                    value: substituteVariables(header.value)
-                  }));
-                }
-                
-                allRules.push(processedRule);
-              }
-            });
-          }
-        }
-      });
-    } else if (rules && rules.length > 0) {
-      // Fall back to old flat format and substitute variables
-      allRules = rules.filter(rule => rule.enabled).map(rule => {
-        const processedRule = { ...rule };
-        
-        if (rule.type === 'url_rewrite') {
-          processedRule.sourceUrl = substituteVariables(rule.sourceUrl);
-          processedRule.targetUrl = substituteVariables(rule.targetUrl);
-        } else if (rule.type === 'modify_headers') {
-          processedRule.urlPattern = substituteVariables(rule.urlPattern);
-          processedRule.headers = rule.headers.map(header => ({
-            ...header,
-            name: substituteVariables(header.name),
-            value: substituteVariables(header.value)
-          }));
-        }
-        
-        return processedRule;
-      });
-    }
+    // Process rules and substitute variables at runtime
+    const processedRules = allRules.map(rule => {
+      const processedRule = { ...rule };
+      
+      if (rule.type === 'url_rewrite') {
+        processedRule.sourceUrl = substituteVariables(rule.sourceUrl);
+        processedRule.targetUrl = substituteVariables(rule.targetUrl);
+      } else if (rule.type === 'modify_headers') {
+        processedRule.urlPattern = substituteVariables(rule.urlPattern);
+        processedRule.headers = rule.headers.map(header => ({
+          ...header,
+          name: substituteVariables(header.name),
+          value: substituteVariables(header.value)
+        }));
+      }
+      
+      return processedRule;
+    });
 
-    if (allRules.length === 0) {
+    if (processedRules.length === 0) {
       console.log('No enabled rules to add');
       return;
     }
@@ -383,8 +381,8 @@ async function updateDeclarativeRules() {
     let ruleId = 1;
 
     // Separate URL rewrite rules and header rules
-    const urlRewriteRules = allRules.filter(rule => rule.type === 'url_rewrite');
-    const headerRules = allRules.filter(rule => rule.type === 'modify_headers');
+    const urlRewriteRules = processedRules.filter(rule => rule.type === 'url_rewrite');
+    const headerRules = processedRules.filter(rule => rule.type === 'modify_headers');
     
     // Process URL rewrite rules
     if (urlRewriteRules.length > 0) {
@@ -812,6 +810,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: false, error: error.message });
     });
     return true;
+  } else if (request.action === 'switchEnvironment') {
+    (async () => {
+      try {
+        await switchEnvironment(request.environmentName);
+        sendResponse({ success: true });
+      } catch (error) {
+        console.error('Error switching environment:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+    return true; // Keep message channel open for async response
+  } else if (request.action === 'getCurrentEnvironment') {
+    sendResponse({ environment: currentEnvironment });
+    return true;
   }
 });
 
@@ -1160,4 +1172,85 @@ function convertWildcardToRegex(wildcardPattern) {
   }
   
   return regexPattern;
+}
+
+// Handle environment switching
+async function switchEnvironment(environmentName) {
+  console.log(`🔄 Switching to environment: ${environmentName}`);
+  
+  try {
+    // Update current environment in sync storage
+    await chrome.storage.sync.set({ currentEnvironment: environmentName });
+    currentEnvironment = environmentName;
+    
+    // Update rules based on new environment
+    await updateDeclarativeRules();
+    
+    console.log(`✅ Successfully switched to environment: ${environmentName}`);
+  } catch (error) {
+    console.error('❌ Error switching environment:', error);
+    throw error;
+  }
+}
+
+// Get rules with environment-specific states applied
+async function getRulesForCurrentEnvironment() {
+  const [localData, syncData] = await Promise.all([
+    chrome.storage.local.get(['rules', 'groups', 'environments']),
+    chrome.storage.sync.get(['currentEnvironment'])
+  ]);
+  
+  const { rules, groups, environments } = localData;
+  const activeEnvironment = syncData.currentEnvironment || 'Default';
+  
+  // Find current environment configuration
+  const envConfig = environments?.find(env => env.name === activeEnvironment) || 
+                   environments?.find(env => env.isDefault) || 
+                   { ruleStates: {} };
+  
+  let allRules = [];
+  
+  // Get all rules from groups or legacy rules format
+  if (groups && groups.length > 0) {
+    groups.forEach((group, groupIndex) => {
+      if (group.enabled !== false) {
+        if (group.rules) {
+          group.rules.forEach((rule, ruleIndex) => {
+            const ruleId = `${groupIndex}-${ruleIndex}`;
+            const environmentEnabled = envConfig.ruleStates[ruleId] !== false;
+            
+            // Rule is enabled if both the rule itself and environment config allow it
+            const isEnabled = rule.enabled && environmentEnabled;
+            
+            if (isEnabled) {
+              allRules.push({
+                ...rule,
+                _groupIndex: groupIndex,
+                _ruleIndex: ruleIndex,
+                _environmentEnabled: environmentEnabled
+              });
+            }
+          });
+        }
+      }
+    });
+  } else if (rules && rules.length > 0) {
+    rules.forEach((rule, ruleIndex) => {
+      const ruleId = `legacy-${ruleIndex}`;
+      const environmentEnabled = envConfig.ruleStates[ruleId] !== false;
+      
+      // Rule is enabled if both the rule itself and environment config allow it
+      const isEnabled = rule.enabled && environmentEnabled;
+      
+      if (isEnabled) {
+        allRules.push({
+          ...rule,
+          _ruleIndex: ruleIndex,
+          _environmentEnabled: environmentEnabled
+        });
+      }
+    });
+  }
+  
+  return allRules;
 }

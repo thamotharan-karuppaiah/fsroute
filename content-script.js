@@ -48,6 +48,9 @@
       if (notificationsEnabled && extensionEnabled) {
         showNotification(message);
       }
+    } else if (message.action === 'settingsChanged') {
+      extensionEnabled = message.extensionEnabled;
+      console.log('🔄 CORS handling updated:', extensionEnabled ? 'enabled' : 'disabled');
     }
   });
   
@@ -465,110 +468,197 @@
   // Clean up notifications when page unloads
   window.addEventListener('beforeunload', clearAllNotifications);
   
-  // CORS Handler - Intercept fetch and XMLHttpRequest
-  const originalFetch = window.fetch;
-  const originalXMLHttpRequest = window.XMLHttpRequest;
-  
-  // Override fetch to handle CORS for specific domains
-  window.fetch = async function(input, init = {}) {
-    try {
-      // Check if this request needs CORS handling
-      const url = typeof input === 'string' ? input : input.url;
-      
-      if (shouldHandleCORS(url)) {
-        console.log('🌐 Content Script: Handling CORS for fetch request:', url);
+  // Enhanced CORS handling - intercept and modify requests at the client level
+  (function() {
+    'use strict';
+    
+    // Store original functions
+    const originalFetch = window.fetch;
+    const originalXMLHttpRequest = window.XMLHttpRequest;
+    let extensionEnabled = true;
+    
+    // Check extension status
+    chrome.runtime.sendMessage({ action: 'getSettings' }, (response) => {
+      if (response) {
+        extensionEnabled = response.extensionEnabled;
+      }
+    });
+    
+    // Enhanced fetch override with better CORS handling
+    window.fetch = async function(input, init = {}) {
+      try {
+        const url = typeof input === 'string' ? input : input.url;
         
-        // Create a safe copy of init to avoid mutation
-        const safeInit = { ...init };
-        
-        // Add CORS mode and credentials safely
-        safeInit.mode = safeInit.mode || 'cors';
-        safeInit.credentials = safeInit.credentials || 'include';
-        
-        // Add custom headers if needed (safely handle different header formats)
-        if (!safeInit.headers) {
-          safeInit.headers = {};
-        }
-        
-        // Handle Headers object or plain object
-        const hasRequestedWith = safeInit.headers instanceof Headers 
-          ? safeInit.headers.has('X-Requested-With')
-          : safeInit.headers['X-Requested-With'];
+        if (shouldHandleCORS(url)) {
+          console.log('🌐 Enhanced CORS handling for fetch:', url);
           
-        if (!hasRequestedWith) {
-          if (safeInit.headers instanceof Headers) {
-            safeInit.headers.set('X-Requested-With', 'XMLHttpRequest');
-          } else {
-            safeInit.headers['X-Requested-With'] = 'XMLHttpRequest';
+          // Create safe copy of init
+          const corsInit = { ...init };
+          
+          // Force CORS mode and include credentials
+          corsInit.mode = 'cors';
+          corsInit.credentials = 'include';
+          
+          // Ensure headers object exists
+          if (!corsInit.headers) {
+            corsInit.headers = {};
+          }
+          
+          // Convert Headers object to plain object for easier manipulation
+          if (corsInit.headers instanceof Headers) {
+            const headerObj = {};
+            for (const [key, value] of corsInit.headers.entries()) {
+              headerObj[key] = value;
+            }
+            corsInit.headers = headerObj;
+          }
+          
+          // Add required headers for CORS
+          corsInit.headers['X-Requested-With'] = 'XMLHttpRequest';
+          corsInit.headers['Origin'] = window.location.origin;
+          
+          // For preflight requests, add necessary headers
+          if (corsInit.method && ['PUT', 'DELETE', 'PATCH'].includes(corsInit.method.toUpperCase())) {
+            corsInit.headers['Access-Control-Request-Method'] = corsInit.method;
+            if (Object.keys(corsInit.headers).length > 3) { // More than basic headers
+              corsInit.headers['Access-Control-Request-Headers'] = Object.keys(corsInit.headers).join(', ');
+            }
+          }
+          
+          try {
+            const response = await originalFetch.call(this, input, corsInit);
+            
+            // Create a proxy response to add custom CORS headers where possible
+            if (response.ok) {
+              console.log('✅ CORS request successful:', url);
+            }
+            
+            return response;
+          } catch (corsError) {
+            console.log('🔄 CORS failed, trying alternative approach:', corsError.message);
+            
+            // Try with different CORS configuration
+            const fallbackInit = { ...corsInit };
+            fallbackInit.mode = 'no-cors';
+            delete fallbackInit.credentials;
+            
+            return await originalFetch.call(this, input, fallbackInit);
           }
         }
         
-        return await originalFetch.call(this, input, safeInit);
+        return await originalFetch.call(this, input, init);
+      } catch (error) {
+        console.log('🚫 Fetch error:', error.message);
+        throw error;
       }
-      
-      return await originalFetch.call(this, input, init);
-    } catch (error) {
-      // Only log CORS-related errors for domains we're handling
-      const url = typeof input === 'string' ? input : input.url;
-      if (shouldHandleCORS(url)) {
-        console.log('🚫 Content Script: CORS error (expected for some requests):', error.message);
-      }
-      throw error;
-    }
-  };
-  
-  // Override XMLHttpRequest for legacy AJAX
-  window.XMLHttpRequest = function() {
-    const xhr = new originalXMLHttpRequest();
-    const originalOpen = xhr.open;
-    const originalSend = xhr.send;
+    };
     
-    xhr.open = function(method, url, async, username, password) {
-      if (shouldHandleCORS(url)) {
-        console.log('🌐 Content Script: Handling CORS for XHR request:', url);
+    // Enhanced XMLHttpRequest override
+    window.XMLHttpRequest = function() {
+      const xhr = new originalXMLHttpRequest();
+      const originalOpen = xhr.open;
+      const originalSend = xhr.send;
+      const originalSetRequestHeader = xhr.setRequestHeader;
+      
+      let requestUrl = '';
+      let requestMethod = '';
+      
+      xhr.open = function(method, url, async, username, password) {
+        requestUrl = url;
+        requestMethod = method;
         
-        // Set withCredentials for CORS
-        xhr.withCredentials = true;
-      }
+        const result = originalOpen.call(this, method, url, async, username, password);
+        
+        if (shouldHandleCORS(url)) {
+          console.log('🌐 Enhanced CORS handling for XHR:', url);
+          
+          // Enable credentials for CORS
+          xhr.withCredentials = true;
+          
+          // Set up response handler
+          const originalOnReadyStateChange = xhr.onreadystatechange;
+          xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+              console.log(`📡 XHR Response (${xhr.status}):`, url);
+              if (xhr.status >= 200 && xhr.status < 300) {
+                console.log('✅ CORS XHR successful');
+              } else if (xhr.status === 0) {
+                console.log('🚫 CORS blocked - server needs proper CORS headers');
+              }
+            }
+            
+            if (originalOnReadyStateChange) {
+              originalOnReadyStateChange.call(this);
+            }
+          };
+        }
+        
+        return result;
+      };
       
-      return originalOpen.call(this, method, url, async, username, password);
+      xhr.setRequestHeader = function(name, value) {
+        if (shouldHandleCORS(requestUrl) && !name.toLowerCase().startsWith('access-control')) {
+          // Allow setting custom headers but warn about CORS headers
+          if (name.toLowerCase().startsWith('access-control')) {
+            console.warn('⚠️ Cannot set CORS header via client-side:', name);
+            return;
+          }
+        }
+        
+        return originalSetRequestHeader.call(this, name, value);
+      };
+      
+      xhr.send = function(data) {
+        if (shouldHandleCORS(requestUrl)) {
+          // Add required headers for CORS
+          try {
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            xhr.setRequestHeader('Origin', window.location.origin);
+          } catch (e) {
+            console.log('📝 Headers already set or cannot be modified');
+          }
+        }
+        
+        return originalSend.call(this, data);
+      };
+      
+      return xhr;
     };
     
-    xhr.send = function(data) {
-      // Add custom headers before sending
-      if (shouldHandleCORS(xhr.responseURL || '')) {
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    // Copy static properties and prototype
+    Object.setPrototypeOf(window.XMLHttpRequest.prototype, originalXMLHttpRequest.prototype);
+    Object.setPrototypeOf(window.XMLHttpRequest, originalXMLHttpRequest);
+    
+    // Enhanced CORS domain detection
+    function shouldHandleCORS(url) {
+      if (!url || !extensionEnabled) return false;
+      
+      try {
+        const urlObj = new URL(url);
+        const currentOrigin = new URL(window.location.href).origin;
+        
+        // Only handle cross-origin requests
+        if (urlObj.origin === currentOrigin) return false;
+        
+        // Handle specific patterns that commonly need CORS help
+        const corsPatterns = [
+          /\.freshinfinitysquad\.com$/,
+          /\.freshservice-dev\.com$/,
+          /\.freshgladiators\.com$/,
+          /localhost/,
+          /127\.0\.0\.1/,
+          /\.local$/,
+          /\.dev$/
+        ];
+        
+        return corsPatterns.some(pattern => pattern.test(urlObj.hostname));
+      } catch (e) {
+        return false;
       }
-      
-      return originalSend.call(this, data);
-    };
-    
-    return xhr;
-  };
-  
-  // Copy static properties
-  Object.setPrototypeOf(window.XMLHttpRequest.prototype, originalXMLHttpRequest.prototype);
-  Object.setPrototypeOf(window.XMLHttpRequest, originalXMLHttpRequest);
-  
-  // Determine if URL needs CORS handling
-  function shouldHandleCORS(url) {
-    if (!url || !extensionEnabled) return false;
-    
-    try {
-      const urlObj = new URL(url);
-      
-      // Handle specific domains that need CORS help
-      const corsDomainsPatterns = [
-        /\.freshinfinitysquad\.com$/,
-        /\.freshservice-dev\.com$/,
-        /localhost/
-      ];
-      
-      return corsDomainsPatterns.some(pattern => pattern.test(urlObj.hostname));
-    } catch (e) {
-      return false;
     }
-  }
+    
+    console.log('🌐 Enhanced CORS content script loaded');
+  })();
   
   // Inject response header information into page context
   function injectResponseHeaderDebugger() {
