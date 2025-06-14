@@ -1,0 +1,39 @@
+{
+  "name": "freshroute-extension",
+  "version": "1.0.0",
+  "description": "Chrome extension to rewrite URLs and modify headers with regex support",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/process-html.js",
+    "build:dev": "NODE_ENV=development vite build --mode development && NODE_ENV=development node scripts/process-html.js && NODE_ENV=development node scripts/optimize-icons.js && NODE_ENV=development node scripts/dev-manifest.js",
+    "build:prod": "NODE_ENV=production vite build --mode production && NODE_ENV=production node scripts/process-html.js && NODE_ENV=production node scripts/optimize-icons.js && NODE_ENV=production node scripts/dev-manifest.js",
+    "preview": "vite preview",
+    "pack": "npm run build:prod && node scripts/pack.js && node scripts/build-summary.js",
+    "pack:dev": "npm run build:dev && node scripts/pack.js",
+    "clean": "rimraf dist",
+    "watch": "node scripts/dev-watch.js",
+    "watch:dev": "NODE_ENV=development node scripts/dev-watch.js",
+    "process-html": "node scripts/process-html.js",
+    "lint": "echo 'Linting not configured yet'",
+    "test": "echo 'Tests not configured yet'"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "archiver": "^6.0.0",
+    "clean-css": "^5.3.3",
+    "html-minifier-terser": "^7.2.0",
+    "imagemin": "^9.0.1",
+    "imagemin-optipng": "^8.0.0",
+    "imagemin-pngquant": "^10.0.0",
+    "rimraf": "^5.0.0",
+    "terser": "^5.42.0",
+    "vite": "^5.0.0",
+    "vite-plugin-html": "^3.2.2",
+    "vite-plugin-static-copy": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
