@@ -48,6 +48,29 @@ jsFiles.forEach(file => {
   }
 });
 
+// CSS files comparison
+const cssFiles = [
+  'popup.css',
+  'options.css'
+];
+
+console.log('\n🎨 CSS Files:');
+let totalCssOriginal = 0;
+let totalCssMinified = 0;
+
+cssFiles.forEach(file => {
+  const originalSize = getFileSize(path.join('src/templates', file));
+  const minifiedSize = getFileSize(path.join('dist', file));
+  
+  if (originalSize > 0 && minifiedSize > 0) {
+    const savings = calculateSavings(originalSize, minifiedSize);
+    console.log(`  ${file.padEnd(20)} ${formatSize(originalSize).padStart(8)} → ${formatSize(minifiedSize).padStart(8)} (${savings}% smaller)`);
+    
+    totalCssOriginal += originalSize;
+    totalCssMinified += minifiedSize;
+  }
+});
+
 // HTML files comparison
 const htmlFiles = [
   'popup.html',
@@ -103,12 +126,13 @@ iconFiles.forEach(file => {
 });
 
 // Overall summary
-const totalOriginal = totalJsOriginal + totalHtmlOriginal + totalIconsOriginal;
-const totalMinified = totalJsMinified + totalHtmlMinified + totalIconsOptimized;
+const totalOriginal = totalJsOriginal + totalCssOriginal + totalHtmlOriginal + totalIconsOriginal;
+const totalMinified = totalJsMinified + totalCssMinified + totalHtmlMinified + totalIconsOptimized;
 const totalSavings = calculateSavings(totalOriginal, totalMinified);
 
 console.log('\n📊 Overall Summary:');
 console.log(`  JavaScript:          ${formatSize(totalJsOriginal).padStart(8)} → ${formatSize(totalJsMinified).padStart(8)} (${calculateSavings(totalJsOriginal, totalJsMinified)}% reduction)`);
+console.log(`  CSS:                 ${formatSize(totalCssOriginal).padStart(8)} → ${formatSize(totalCssMinified).padStart(8)} (${calculateSavings(totalCssOriginal, totalCssMinified)}% reduction)`);
 console.log(`  HTML:                ${formatSize(totalHtmlOriginal).padStart(8)} → ${formatSize(totalHtmlMinified).padStart(8)} (${calculateSavings(totalHtmlOriginal, totalHtmlMinified)}% reduction)`);
 console.log(`  Icons:               ${formatSize(totalIconsOriginal).padStart(8)} → ${formatSize(totalIconsOptimized).padStart(8)} (${calculateSavings(totalIconsOriginal, totalIconsOptimized)}% reduction)`);
 console.log(`  ${'─'.repeat(50)}`);

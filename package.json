@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/process-html.js",
-    "build:dev": "NODE_ENV=development vite build --mode development && NODE_ENV=development node scripts/process-html.js && NODE_ENV=development node scripts/optimize-icons.js && NODE_ENV=development node scripts/dev-manifest.js",
-    "build:prod": "NODE_ENV=production vite build --mode production && NODE_ENV=production node scripts/process-html.js && NODE_ENV=production node scripts/optimize-icons.js && NODE_ENV=production node scripts/dev-manifest.js",
+    "build:dev": "NODE_ENV=development vite build --mode development && NODE_ENV=development node scripts/process-css.js && NODE_ENV=development node scripts/process-html.js && NODE_ENV=development node scripts/optimize-icons.js && NODE_ENV=development node scripts/dev-manifest.js",
+    "build:prod": "NODE_ENV=production vite build --mode production && NODE_ENV=production node scripts/process-css.js && NODE_ENV=production node scripts/process-html.js && NODE_ENV=production node scripts/optimize-icons.js && NODE_ENV=production node scripts/dev-manifest.js",
     "preview": "vite preview",
     "pack": "npm run build:prod && node scripts/pack.js && node scripts/build-summary.js",
     "pack:dev": "npm run build:dev && node scripts/pack.js",

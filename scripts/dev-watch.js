@@ -49,7 +49,7 @@ const iconsDir = path.resolve('src/icons');
 
 console.log('👀 Watching for changes in:');
 console.log('   - src/ (JavaScript files)');
-console.log('   - src/templates/ (HTML files)');
+console.log('   - src/templates/ (HTML and CSS files)');
 console.log('   - src/icons/ (Icon files)');
 console.log('   - manifest.json');
 console.log('   - rules.json\n');
@@ -62,10 +62,11 @@ watch(srcDir, { recursive: true }, (eventType, filename) => {
   }
 });
 
-// Watch HTML templates
+// Watch HTML templates and CSS files
 watch(templatesDir, { recursive: true }, (eventType, filename) => {
-  if (filename && filename.endsWith('.html')) {
-    console.log(`🌐 Changed: src/templates/${filename}`);
+  if (filename && (filename.endsWith('.html') || filename.endsWith('.css'))) {
+    const icon = filename.endsWith('.html') ? '🌐' : '🎨';
+    console.log(`${icon} Changed: src/templates/${filename}`);
     debouncedBuild();
   }
 });
